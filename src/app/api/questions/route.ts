@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getDatasetStatsFromDB,
-  filterQuestionsFromDB,
+  getPaginatedQuestionsFromDB,
   getRandomizedQuestionsFromDB,
   addQuestionToDB,
 } from '@/lib/questions';
@@ -45,22 +45,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ questions: randomized, totalMatches: randomized.length });
     }
 
-    const filtered = await filterQuestionsFromDB({
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
+
+    const { questions: paginated, totalMatches } = await getPaginatedQuestionsFromDB({
       difficulties,
       tags,
       search,
+      onlySummary: true,
+      page,
+      pageSize,
     });
-
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
-    const startIndex = (page - 1) * pageSize;
-    const paginated = filtered.slice(startIndex, startIndex + pageSize);
 
     return NextResponse.json({
       questions: paginated,
-      totalMatches: filtered.length,
+      totalMatches,
       page,
-      totalPages: Math.ceil(filtered.length / pageSize),
+      totalPages: Math.ceil(totalMatches / pageSize),
     });
   } catch (error: any) {
     console.error('Error in GET /api/questions:', error);

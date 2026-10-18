@@ -7,7 +7,12 @@ export interface FilterParams {
   search?: string;
   questionIds?: number[];
   pointsConfig?: PointsConfig;
+  onlySummary?: boolean;
 }
+
+let cachedDatasetStats: DatasetStats | null = null;
+let cachedDatasetStatsTime = 0;
+const STATS_CACHE_TTL = 1000 * 60 * 30; // 30 mins in-memory cache
 
 export function mapRowToQuestion(row: any): Question {
   return {
@@ -55,6 +60,10 @@ export async function getQuestionByIdFromDB(id: number): Promise<Question | unde
 }
 
 export async function getDatasetStatsFromDB(): Promise<DatasetStats> {
+  if (cachedDatasetStats && Date.now() - cachedDatasetStatsTime < STATS_CACHE_TTL) {
+    return cachedDatasetStats;
+  }
+
   try {
     const totalRes = await pool.query('SELECT COUNT(*) FROM questions');
     const totalQuestions = parseInt(totalRes.rows[0].count, 10);
@@ -90,13 +99,17 @@ export async function getDatasetStatsFromDB(): Promise<DatasetStats> {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
 
-    return {
+    cachedDatasetStats = {
       totalQuestions,
       difficultyCounts,
       tagCounts,
     };
+    cachedDatasetStatsTime = Date.now();
+
+    return cachedDatasetStats;
   } catch (error) {
     console.error('Error fetching dataset stats from Neon DB:', error);
+    if (cachedDatasetStats) return cachedDatasetStats;
     return {
       totalQuestions: 0,
       difficultyCounts: { Easy: 0, Medium: 0, Hard: 0 },
@@ -107,7 +120,10 @@ export async function getDatasetStatsFromDB(): Promise<DatasetStats> {
 
 export async function filterQuestionsFromDB(params: FilterParams): Promise<Question[]> {
   try {
-    let query = 'SELECT * FROM questions WHERE 1=1';
+    const selectCols = params.onlySummary
+      ? 'id, task_id, title, difficulty, points, tags'
+      : '*';
+    let query = `SELECT ${selectCols} FROM questions WHERE 1=1`;
     const queryParams: any[] = [];
     let paramIndex = 1;
 
@@ -154,6 +170,72 @@ export async function filterQuestionsFromDB(params: FilterParams): Promise<Quest
   } catch (error) {
     console.error('Error filtering questions from Neon DB:', error);
     return [];
+  }
+}
+
+export interface PaginatedQuestionsResult {
+  questions: Question[];
+  totalMatches: number;
+}
+
+export async function getPaginatedQuestionsFromDB(
+  params: FilterParams & { page?: number; pageSize?: number }
+): Promise<PaginatedQuestionsResult> {
+  try {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, Math.min(100, params.pageSize || 20));
+    const offset = (page - 1) * pageSize;
+
+    const selectCols = params.onlySummary
+      ? 'id, task_id, title, difficulty, points, tags'
+      : '*';
+
+    let whereClause = 'WHERE 1=1';
+    const queryParams: any[] = [];
+    let paramIndex = 1;
+
+    if (params.difficulties && params.difficulties.length > 0) {
+      whereClause += ` AND difficulty = ANY($${paramIndex})`;
+      queryParams.push(params.difficulties);
+      paramIndex++;
+    }
+
+    if (params.search && params.search.trim() !== '') {
+      const term = `%${params.search.toLowerCase().trim()}%`;
+      whereClause += ` AND (LOWER(title) LIKE $${paramIndex} OR id::text = $${paramIndex + 1})`;
+      queryParams.push(term, params.search.trim());
+      paramIndex += 2;
+    }
+
+    if (params.questionIds && params.questionIds.length > 0) {
+      whereClause += ` AND id = ANY($${paramIndex})`;
+      queryParams.push(params.questionIds);
+      paramIndex++;
+    }
+
+    if (params.tags && params.tags.length > 0) {
+      const tagPatterns = params.tags.map((t) => `%"${t}"%`);
+      whereClause += ` AND (tags::text ILIKE ANY($${paramIndex}))`;
+      queryParams.push(tagPatterns);
+      paramIndex++;
+    }
+
+    const countQuery = `SELECT COUNT(*) AS total FROM questions ${whereClause}`;
+    const dataQuery = `SELECT ${selectCols} FROM questions ${whereClause} ORDER BY id ASC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    const dataParams = [...queryParams, pageSize, offset];
+
+    const [countRes, dataRes] = await Promise.all([
+      pool.query(countQuery, queryParams),
+      pool.query(dataQuery, dataParams),
+    ]);
+
+    const totalMatches = parseInt(countRes.rows[0]?.total || '0', 10);
+    const questions = dataRes.rows.map(mapRowToQuestion);
+
+    return { questions, totalMatches };
+  } catch (error) {
+    console.error('Error fetching paginated questions from Neon DB:', error);
+    return { questions: [], totalMatches: 0 };
   }
 }
 

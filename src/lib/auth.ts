@@ -14,42 +14,45 @@ export const authOptions: NextAuthOptions = {
     signIn: '/auth/signin',
   },
   callbacks: {
-    async session({ session, token }) {
-      if (session?.user) {
-        (session.user as any).id = token.sub;
-        const rawEmail = session.user.email || (token.email as string);
-        if (rawEmail) {
-          const normEmail = rawEmail.trim().toLowerCase();
-          session.user.email = normEmail;
-          // Sync logged-in user with MongoDB database and retrieve live credits status
-          const dbUser = await syncUserWithMongoDB(
-            normEmail,
-            session.user.name || undefined,
-            session.user.image || undefined
-          );
-          if (dbUser) {
-            (session.user as any).credits = dbUser.isUnlimited
-              ? Math.max(dbUser.credits ?? 1, 999)
-              : (dbUser.credits ?? 1);
-            (session.user as any).isUnlimited = !!dbUser.isUnlimited;
-            (session.user as any).unlimitedExpiry = dbUser.unlimitedExpiry
-              ? new Date(dbUser.unlimitedExpiry).toISOString()
-              : undefined;
-            (session.user as any).potdStreak = dbUser.potdStreak || 0;
-            (session.user as any).potdLastSolvedDate = dbUser.potdLastSolvedDate;
-          }
-        }
-      }
-      return session;
-    },
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
         if (user.email) {
-          token.email = user.email.trim().toLowerCase();
+          const normEmail = user.email.trim().toLowerCase();
+          token.email = normEmail;
+          try {
+            const dbUser = await syncUserWithMongoDB(
+              normEmail,
+              user.name || undefined,
+              user.image || undefined
+            );
+            if (dbUser) {
+              token.credits = dbUser.isUnlimited ? 999 : (dbUser.credits ?? 1);
+              token.isUnlimited = !!dbUser.isUnlimited;
+              token.unlimitedExpiry = dbUser.unlimitedExpiry ? new Date(dbUser.unlimitedExpiry).toISOString() : undefined;
+              token.potdStreak = dbUser.potdStreak || 0;
+              token.potdLastSolvedDate = dbUser.potdLastSolvedDate;
+            }
+          } catch (e) {
+            console.warn('JWT user sync warning:', e);
+          }
         }
       }
       return token;
+    },
+    async session({ session, token }) {
+      if (session?.user) {
+        (session.user as any).id = token.id || token.sub;
+        if (token.email) {
+          session.user.email = token.email as string;
+        }
+        (session.user as any).credits = (token.credits as number) ?? 1;
+        (session.user as any).isUnlimited = !!token.isUnlimited;
+        (session.user as any).unlimitedExpiry = token.unlimitedExpiry as string | undefined;
+        (session.user as any).potdStreak = (token.potdStreak as number) || 0;
+        (session.user as any).potdLastSolvedDate = token.potdLastSolvedDate as string | undefined;
+      }
+      return session;
     },
   },
 };

@@ -1471,7 +1471,7 @@ export async function executeOnJudge0(
     }
   }
 
-  const endpoint = `${JUDGE0_BASE_URL}/submissions?base64_encoded=true&wait=false`;
+  const endpoint = `${JUDGE0_BASE_URL}/submissions?base64_encoded=true&wait=true`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -1503,29 +1503,37 @@ export async function executeOnJudge0(
     };
   }
 
-  const { token } = await response.json();
+  const initialData = await response.json().catch(() => ({}));
+  let result: any = initialData;
 
-  let result: any = null;
-  for (let i = 0; i < 40; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    const res = await fetch(
-      `${JUDGE0_BASE_URL}/submissions/${token}?base64_encoded=true`,
-      { headers }
-    );
-    if (!res.ok) {
-      return {
-        status: 'ERROR',
-        results: [],
-        runtime: '0 ms',
-        memory: '0 MB',
-        error: `Judge0 poll error (${res.status}): ${await res.text()}`,
-      };
+  // If Judge0 did not finish synchronously (status 1 = In Queue, 2 = Processing), poll with progressive fast backoff
+  if (!result || !result.status || result.status.id < 3) {
+    const token = result?.token;
+    if (token) {
+      const delays = [150, 300, 500, 800, 1000];
+      for (let i = 0; i < 35; i++) {
+        const delay = delays[Math.min(i, delays.length - 1)];
+        await new Promise((r) => setTimeout(r, delay));
+        const res = await fetch(
+          `${JUDGE0_BASE_URL}/submissions/${token}?base64_encoded=true`,
+          { headers }
+        );
+        if (!res.ok) {
+          return {
+            status: 'ERROR',
+            results: [],
+            runtime: '0 ms',
+            memory: '0 MB',
+            error: `Judge0 poll error (${res.status}): ${await res.text()}`,
+          };
+        }
+        result = await res.json();
+        if (result.status?.id >= 3) break;
+      }
     }
-    result = await res.json();
-    if (result.status?.id >= 3) break; // 1 = queued, 2 = processing
   }
-  
-  if (!result || result.status?.id < 3) {
+
+  if (!result || !result.status || result.status.id < 3) {
     return {
       status: 'ERROR',
       results: [],

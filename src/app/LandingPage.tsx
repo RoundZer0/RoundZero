@@ -6,27 +6,28 @@ import {
   DrawablyHighlight,
 } from "drawably/react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 
 const ORANGE = "#ff9f0a";
 
-function getSignInCallbackUrl(): string {
-  if (typeof window === "undefined") return "/";
+function getSignInCallbackUrl(target = "/"): string {
+  if (typeof window === "undefined") return target;
 
   const callbackUrl = new URLSearchParams(window.location.search).get("callbackUrl");
-  if (!callbackUrl) return "/";
+  if (!callbackUrl) return target;
 
   try {
     const url = new URL(callbackUrl, window.location.origin);
-    if (url.origin !== window.location.origin) return "/";
+    if (url.origin !== window.location.origin) return target;
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
-    return "/";
+    return target;
   }
 }
 
 export default function LandingPage() {
+  const { data: session } = useSession();
   const [questions, setQuestions] = useState(0);
 
   useEffect(() => {
@@ -202,18 +203,30 @@ export default function LandingPage() {
 
               <div className="mt-8 flex flex-wrap gap-3">
 
-                <button
-                  type="button"
-                  onClick={() => signIn('google', { callbackUrl: getSignInCallbackUrl() })}
-                  className="group flex items-center gap-8 rounded-lg px-6 py-3.5 text-sm font-semibold text-black transition hover:brightness-110 cursor-pointer"
-                  style={{ backgroundColor: ORANGE }}
-                >
-                  Start Solving
-
-                  <span className="transition-transform group-hover:translate-x-1">
-                    →
-                  </span>
-                </button>
+                {session?.user ? (
+                  <Link
+                    href="/questions"
+                    className="group flex items-center gap-8 rounded-lg px-6 py-3.5 text-sm font-semibold text-black transition hover:brightness-110 cursor-pointer"
+                    style={{ backgroundColor: ORANGE }}
+                  >
+                    Start Solving
+                    <span className="transition-transform group-hover:translate-x-1">
+                      →
+                    </span>
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => signIn('google', { callbackUrl: getSignInCallbackUrl('/questions') })}
+                    className="group flex items-center gap-8 rounded-lg px-6 py-3.5 text-sm font-semibold text-black transition hover:brightness-110 cursor-pointer"
+                    style={{ backgroundColor: ORANGE }}
+                  >
+                    Start Solving
+                    <span className="transition-transform group-hover:translate-x-1">
+                      →
+                    </span>
+                  </button>
+                )}
 
                 <Link
                   href="#pricing"
@@ -544,22 +557,34 @@ export default function LandingPage() {
               </div>
 
 
-              <button
-                type="button"
-                onClick={() => signIn('google', { callbackUrl: getSignInCallbackUrl() })}
-                className="mt-9 flex w-full items-center justify-between rounded-lg px-5 py-4 text-sm font-semibold text-black transition hover:brightness-110 cursor-pointer"
-                style={{ backgroundColor: ORANGE }}
-              >
-
-                <span>
-                  Get Unlimited Access
-                </span>
-
-                <span>
-                  →
-                </span>
-
-              </button>
+              {session?.user ? (
+                <Link
+                  href="/checkout?planId=unlimited_3months_99"
+                  className="mt-9 flex w-full items-center justify-between rounded-lg px-5 py-4 text-sm font-semibold text-black transition hover:brightness-110 cursor-pointer"
+                  style={{ backgroundColor: ORANGE }}
+                >
+                  <span>
+                    Get Unlimited Access
+                  </span>
+                  <span>
+                    →
+                  </span>
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => signIn('google', { callbackUrl: getSignInCallbackUrl('/checkout?planId=unlimited_3months_99') })}
+                  className="mt-9 flex w-full items-center justify-between rounded-lg px-5 py-4 text-sm font-semibold text-black transition hover:brightness-110 cursor-pointer"
+                  style={{ backgroundColor: ORANGE }}
+                >
+                  <span>
+                    Get Unlimited Access
+                  </span>
+                  <span>
+                    →
+                  </span>
+                </button>
+              )}
 
             </div>
 

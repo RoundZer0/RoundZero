@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     if (!isUnlimited) {
       try {
         const verifiedPayment = await PaymentModel.findOne({
-          userEmail: { $regex: new RegExp(`^${userEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          userEmail: userEmail.toLowerCase().trim(),
           status: 'verified',
           $or: [{ planId: /unlimited/ }, { credits: { $gte: 900 } }],
         }).sort({ createdAt: -1 });

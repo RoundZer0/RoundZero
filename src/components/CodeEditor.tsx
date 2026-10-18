@@ -11,6 +11,8 @@ interface Props {
   language?: string;
   onLanguageChange?: (lang: string) => void;
   readOnly?: boolean;
+  borderless?: boolean;
+  height?: string;
 }
 
 export default function CodeEditor({
@@ -20,6 +22,8 @@ export default function CodeEditor({
   language = 'python',
   onLanguageChange,
   readOnly = false,
+  borderless = false,
+  height,
 }: Props) {
   const [copied, setCopied] = useState(false);
 
@@ -46,9 +50,11 @@ export default function CodeEditor({
   };
 
   return (
-    <div className="flex flex-col h-full rounded-xl border border-[#383838] bg-[#282828] overflow-hidden shadow-xl">
+    <div className={`flex flex-col h-full overflow-hidden ${
+      borderless ? 'bg-[#1e1e1e]' : 'rounded-xl border border-[#383838] bg-[#282828] shadow-xl'
+    }`}>
       {/* Editor Top Bar */}
-      <div className="flex items-center justify-between border-b border-[#383838] bg-[#1e1e1e] px-4 py-2 text-xs font-mono text-zinc-400">
+      <div className="flex items-center justify-between border-b border-[#383838] bg-[#242424] px-3 sm:px-4 py-2 text-xs font-mono text-zinc-400">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-zinc-300">
             <Code className="h-4 w-4 text-[#ffa116]" />

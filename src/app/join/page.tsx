@@ -17,7 +17,33 @@ function JoinRoomContent() {
   const [inviteCode, setInviteCode] = useState(codeParam.toUpperCase());
   const [joining, setJoining] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [matching, setMatching] = useState(false);
   const [error, setError] = useState('');
+
+  const handleQuickMatch = async () => {
+    if (status !== 'authenticated') {
+      signIn('google', { callbackUrl: '/join' });
+      return;
+    }
+    setMatching(true);
+    setError('');
+    try {
+      const res = await fetch('/api/room/quick-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Quick match failed.');
+        setMatching(false);
+        return;
+      }
+      router.push(`/room/${data.roomId}`);
+    } catch {
+      setError('Network error while finding match.');
+      setMatching(false);
+    }
+  };
 
   const handleCreateDuel = async () => {
     if (status !== 'authenticated') {
@@ -169,27 +195,46 @@ function JoinRoomContent() {
                 </span>
               </div>
               <p className="text-[11px] text-white/60 leading-relaxed">
-                Create a live 1v1 battle arena, share the 6-character code with your opponent, and race in real-time to solve coding problems.
+                Jump into the 1v1 matchmaking queue to instantly find an opponent, or generate a private code to duel a specific friend.
               </p>
-              <button
-                type="button"
-                onClick={handleCreateDuel}
-                disabled={creating}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-black transition hover:brightness-110 disabled:opacity-40 shadow-lg"
-                style={{ backgroundColor: ORANGE }}
-              >
-                {creating ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin text-black" />
-                    <span>Creating Duel Arena...</span>
-                  </>
-                ) : (
-                  <>
-                    <Swords className="h-4 w-4 text-black" />
-                    <span>Create 1v1 Code Duel</span>
-                  </>
-                )}
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleQuickMatch}
+                  disabled={matching || creating}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-black transition hover:brightness-110 disabled:opacity-40 shadow-lg"
+                  style={{ backgroundColor: ORANGE }}
+                >
+                  {matching ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin text-black" />
+                      <span>Finding Match...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Swords className="h-4 w-4 text-black" />
+                      <span>Quick Match</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateDuel}
+                  disabled={creating || matching}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-white bg-[#2e2e2e] hover:bg-[#383838] border border-white/10 transition disabled:opacity-40"
+                >
+                  {creating ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin text-zinc-300" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Create Private</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">

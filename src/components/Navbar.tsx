@@ -131,7 +131,7 @@ export default function Navbar() {
       window.removeEventListener("storage", update);
       window.removeEventListener("roundzero_credits_updated", update);
     };
-  }, [pathname, session?.user?.email, status]);
+  }, [session?.user?.email, status]);
 
   useEffect(() => {
     if (!isProfileOpen) return;

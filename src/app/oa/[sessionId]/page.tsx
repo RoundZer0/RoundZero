@@ -36,6 +36,7 @@ import {
   Swords,
   Trophy,
 } from "lucide-react";
+import { playSound } from "@/lib/sound";
 
 type OutputState = "passed" | "failed" | "error";
 
@@ -136,6 +137,8 @@ export default function TakeOAPage({
   );
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [selectedSampleTab, setSelectedSampleTab] = useState(0);
+  const [customTestInput, setCustomTestInput] = useState<Record<number, string>>({});
+  const [isCustomTest, setIsCustomTest] = useState<Record<number, boolean>>({});
 
   // Left card tabs (Description | Submissions) + per-question submission history
   const [leftTab, setLeftTab] = useState<"description" | "submission">(
@@ -150,6 +153,17 @@ export default function TakeOAPage({
   const splitRef = useRef<HTMLDivElement>(null);
   const [leftWidth, setLeftWidth] = useState(46);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Mobile / Tablet responsiveness
+  const [mobileActiveView, setMobileActiveView] = useState<"problem" | "code" | "console">("code");
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Execution & Submission feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -553,6 +567,7 @@ export default function TakeOAPage({
   const showResultTab = () => {
     setBottomTab("result");
     setConsoleOpen(true);
+    setMobileActiveView("console");
   };
 
   const handleCodeChange = (val: string) => {
@@ -666,6 +681,9 @@ export default function TakeOAPage({
     setIsRunningTests(true);
     showResultTab();
 
+    const isCustom = isCustomTest[currentQuestion.id];
+    const customVal = customTestInput[currentQuestion.id];
+
     try {
       const res = await fetch("/api/oa/run", {
         method: "POST",
@@ -674,6 +692,7 @@ export default function TakeOAPage({
           questionId: currentQuestion.id,
           code: currentCode,
           language: currentLanguage,
+          customInput: isCustom && customVal?.trim() ? customVal.trim() : undefined,
         }),
       });
 
@@ -690,6 +709,11 @@ export default function TakeOAPage({
 
       setTestOutput(data);
       setSelectedCaseTab(0);
+      if (getOutputState(data) === "passed") {
+        playSound("success");
+      } else {
+        playSound("error");
+      }
     } catch (e) {
       setTestOutput({
         status: "ERROR",
@@ -767,6 +791,7 @@ export default function TakeOAPage({
 
         // All tests passed -> jump to the Submissions tab
         if (passed) {
+          playSound(session?.roomId ? "victory" : "success");
           setLeftTab("submission");
           if (session?.roomId) {
             // In 1v1 duel, solution accepted means immediate VICTORY!
@@ -837,6 +862,8 @@ export default function TakeOAPage({
             }, 350);
             return;
           }
+        } else {
+          playSound("error");
         }
       }
     } catch (e) {
@@ -1085,12 +1112,78 @@ export default function TakeOAPage({
         </div>
       </header>
 
+      {/* Mobile Tab Switcher for phones and tablets */}
+      <div className="flex lg:hidden items-center justify-between border-b border-[#282828] bg-[#1a1a1a] px-3 py-1.5 shrink-0 z-10">
+        <div className="flex items-center gap-1 bg-[#222] p-0.5 rounded-lg border border-[#333]">
+          <button
+            type="button"
+            onClick={() => setMobileActiveView("problem")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition ${
+              mobileActiveView === "problem"
+                ? "bg-[#ffa116] text-[#141414] font-bold shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>Problem</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileActiveView("code")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition ${
+              mobileActiveView === "code"
+                ? "bg-[#ffa116] text-[#141414] font-bold shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Code2 className="h-3.5 w-3.5" />
+            <span>Code</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMobileActiveView("console");
+              setConsoleOpen(true);
+            }}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition ${
+              mobileActiveView === "console"
+                ? "bg-[#ffa116] text-[#141414] font-bold shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Terminal className="h-3.5 w-3.5" />
+            <span>Console</span>
+            {testOutput && (
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  outputState === "passed"
+                    ? "bg-emerald-400"
+                    : outputState === "error"
+                      ? "bg-amber-400"
+                      : "bg-rose-400"
+                }`}
+              />
+            )}
+          </button>
+        </div>
+
+        {session.roomId && (
+          <span className="text-[10px] font-mono text-amber-400 font-semibold px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded">
+            1v1 Arena
+          </span>
+        )}
+      </div>
+
       {/* ===================== Split Workspace ===================== */}
       <div ref={splitRef} className="flex flex-1 min-h-0 p-2">
         {/* ---------- Left: Description card ---------- */}
         <section
-          style={{ width: `${leftWidth}%` }}
-          className={`${panelClass} shrink-0 ${isDragging ? "pointer-events-none" : ""}`}
+          style={!isMobile ? { width: `${leftWidth}%` } : undefined}
+          className={`${panelClass} shrink-0 ${isDragging ? "pointer-events-none" : ""} ${
+            mobileActiveView === "problem"
+              ? "flex flex-1 w-full"
+              : "hidden lg:flex"
+          }`}
         >
           <div className={`${panelHeaderClass} gap-1`}>
             <button
@@ -1399,7 +1492,7 @@ export default function TakeOAPage({
             e.preventDefault();
             setIsDragging(true);
           }}
-          className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+          className="hidden lg:flex group w-2 shrink-0 cursor-col-resize items-center justify-center"
         >
           <div
             className={`h-10 w-0.5 rounded-full transition ${
@@ -1410,31 +1503,32 @@ export default function TakeOAPage({
 
         {/* ---------- Right: Editor card + Console card ---------- */}
         <div
-          className={`flex flex-1 min-w-0 flex-col gap-2 ${isDragging ? "pointer-events-none" : ""}`}
+          className={`flex flex-1 min-w-0 flex-col gap-2 ${isDragging ? "pointer-events-none" : ""} ${
+            mobileActiveView === "problem" ? "hidden lg:flex" : "flex"
+          }`}
         >
           {/* Code editor card */}
-          <section className={`${panelClass} flex-1`}>
-            <div className={panelHeaderClass}>
-              <span className="flex items-center gap-2 px-2 text-xs font-medium text-white">
-                <Code2 className="h-3.5 w-3.5 text-emerald-400" />
-                Code
-              </span>
-            </div>
-            <div className="flex-1 min-h-0">
-              <CodeEditor
-                value={currentCode}
-                onChange={handleCodeChange}
-                starterCode={currentQuestion.starterCode}
-                language={currentLanguage}
-                onLanguageChange={handleLanguageChange}
-              />
-            </div>
+          <section
+            className={`${panelClass} flex-1 ${
+              mobileActiveView === "console" ? "hidden lg:flex" : "flex"
+            }`}
+          >
+            <CodeEditor
+              value={currentCode}
+              onChange={handleCodeChange}
+              starterCode={currentQuestion.starterCode}
+              language={currentLanguage}
+              onLanguageChange={handleLanguageChange}
+              borderless={true}
+            />
           </section>
 
           {/* Console card (Testcase | Test Result) */}
           <section
             className={`${panelClass} shrink-0 ${
-              consoleOpen ? "h-[40%]" : "h-10"
+              mobileActiveView === "code" ? "hidden lg:flex" : "flex"
+            } ${
+              consoleOpen ? (isMobile ? "flex-1" : "h-[40%]") : "h-10"
             }`}
           >
             <div className={`${panelHeaderClass} justify-between`}>
@@ -1503,14 +1597,17 @@ export default function TakeOAPage({
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-1.5 overflow-x-auto">
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                         {sampleExamples.map((_, idx) => (
                           <button
                             key={idx}
                             type="button"
-                            onClick={() => setSelectedSampleTab(idx)}
-                            className={`rounded-lg px-3 py-1 text-xs transition ${
-                              selectedSampleTab === idx
+                            onClick={() => {
+                              setSelectedSampleTab(idx);
+                              setIsCustomTest((prev) => ({ ...prev, [currentQuestion.id]: false }));
+                            }}
+                            className={`rounded-lg px-3 py-1 text-xs transition shrink-0 ${
+                              !isCustomTest[currentQuestion.id] && selectedSampleTab === idx
                                 ? "bg-[#383838] text-white font-semibold"
                                 : "text-zinc-400 hover:bg-[#282828] hover:text-zinc-200"
                             }`}
@@ -1518,17 +1615,61 @@ export default function TakeOAPage({
                             Case {idx + 1}
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomTest((prev) => ({ ...prev, [currentQuestion.id]: true }));
+                            if (!customTestInput[currentQuestion.id] && sampleExamples[0]?.input) {
+                              setCustomTestInput((prev) => ({
+                                ...prev,
+                                [currentQuestion.id]: sampleExamples[0].input,
+                              }));
+                            }
+                          }}
+                          className={`rounded-lg px-3 py-1 text-xs transition flex items-center gap-1 shrink-0 ${
+                            isCustomTest[currentQuestion.id]
+                              ? "bg-[#383838] text-[#ffa116] font-semibold border border-[#ffa116]/30"
+                              : "text-zinc-400 hover:bg-[#282828] hover:text-zinc-200"
+                          }`}
+                        >
+                          <span>+ Custom</span>
+                        </button>
                       </div>
 
-                      <div>
-                        <span className="mb-1 block text-[11px] text-zinc-400">
-                          Input
-                        </span>
-                        <div className="rounded-lg bg-[#282828] p-3 text-xs text-zinc-200 whitespace-pre-wrap break-all">
-                          {(sampleExamples[selectedSampleTab] ??
-                            sampleExamples[0]).input}
+                      {isCustomTest[currentQuestion.id] ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="block text-[11px] text-zinc-400">
+                              Custom Input Testcase
+                            </span>
+                            <span className="text-[10px] text-zinc-500">
+                              Matches question argument format
+                            </span>
+                          </div>
+                          <textarea
+                            value={customTestInput[currentQuestion.id] ?? ""}
+                            onChange={(e) =>
+                              setCustomTestInput((prev) => ({
+                                ...prev,
+                                [currentQuestion.id]: e.target.value,
+                              }))
+                            }
+                            rows={3}
+                            placeholder="e.g. nums = [2, 7, 11, 15], target = 9"
+                            className="w-full rounded-lg bg-[#282828] border border-[#383838] p-2.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-[#ffa116] select-text resize-y"
+                          />
                         </div>
-                      </div>
+                      ) : (
+                        <div>
+                          <span className="mb-1 block text-[11px] text-zinc-400">
+                            Input
+                          </span>
+                          <div className="rounded-lg bg-[#282828] p-3 text-xs text-zinc-200 whitespace-pre-wrap break-all select-text">
+                            {(sampleExamples[selectedSampleTab] ??
+                              sampleExamples[0])?.input}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 ) : (
