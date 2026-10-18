@@ -6,6 +6,7 @@ import { OASession, Submission } from '@/types/oa';
 import { executeOnJudge0 } from '@/lib/judge0';
 import { getOASessionFromDB, saveOASessionToDB, normalizeEmail } from '@/lib/dbServices';
 import { getQuestionByIdFromDB } from '@/lib/questions';
+import { recordContestSubmission } from '@/lib/contest';
 
 export async function GET(
   request: NextRequest,
@@ -155,7 +156,6 @@ export async function POST(
       // If this OA session is part of a Contest, update live leaderboard
       if ((session.config as any)?.isContest && (session.config as any)?.contestId) {
         try {
-          const { recordContestSubmission } = await import('@/lib/contest');
           await recordContestSubmission(
             (session.config as any).contestId,
             userEmail,
