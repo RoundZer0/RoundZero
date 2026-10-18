@@ -1,6 +1,6 @@
 import { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
-import { syncUserWithMongoDB } from './dbServices';
+import { isLaunchAccessActive, syncUserWithMongoDB } from './dbServices';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -27,9 +27,19 @@ export const authOptions: NextAuthOptions = {
               user.image || undefined
             );
             if (dbUser) {
-              token.credits = dbUser.isUnlimited ? 999 : (dbUser.credits ?? 1);
-              token.isUnlimited = !!dbUser.isUnlimited;
-              token.unlimitedExpiry = dbUser.unlimitedExpiry ? new Date(dbUser.unlimitedExpiry).toISOString() : undefined;
+              const hasPaidPass =
+                !!dbUser.isUnlimited &&
+                (!dbUser.unlimitedExpiry || new Date(dbUser.unlimitedExpiry).getTime() > Date.now());
+              const hasLaunchAccess = isLaunchAccessActive(dbUser.launchUnlimitedExpiry);
+              token.credits = hasPaidPass || hasLaunchAccess ? 999 : (dbUser.credits ?? 1);
+              token.isUnlimited = hasPaidPass || hasLaunchAccess;
+              token.unlimitedExpiry = hasPaidPass
+                ? dbUser.unlimitedExpiry
+                  ? new Date(dbUser.unlimitedExpiry).toISOString()
+                  : undefined
+                : hasLaunchAccess
+                  ? new Date(dbUser.launchUnlimitedExpiry!).toISOString()
+                  : undefined;
               token.potdStreak = dbUser.potdStreak || 0;
               token.potdLastSolvedDate = dbUser.potdLastSolvedDate;
             }

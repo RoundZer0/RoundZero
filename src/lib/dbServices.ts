@@ -23,6 +23,22 @@ export function emailQuery(email: string) {
   };
 }
 
+const LAUNCH_DATE_IST = process.env.ROUNDZERO_LAUNCH_DATE_IST || '2026-10-20';
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+export function getLaunchAccessWindow(): { startsAt: Date; expiresAt: Date } {
+  const [year, month, day] = LAUNCH_DATE_IST.split('-').map(Number);
+  const startsAt = new Date(Date.UTC(year, month - 1, day) - IST_OFFSET_MS);
+  return {
+    startsAt,
+    expiresAt: new Date(startsAt.getTime() + 24 * 60 * 60 * 1000),
+  };
+}
+
+export function isLaunchAccessActive(expiry?: Date | string, now = Date.now()): boolean {
+  return !!expiry && new Date(expiry).getTime() > now;
+}
+
 export async function syncUserWithMongoDB(email: string, name?: string, image?: string) {
   try {
     const conn = await connectToDatabase();
@@ -58,6 +74,16 @@ export async function syncUserWithMongoDB(email: string, name?: string, image?: 
       if (needsSave) {
         await user.save().catch(() => {});
       }
+    }
+
+    const launchWindow = getLaunchAccessWindow();
+    if (
+      Date.now() >= launchWindow.startsAt.getTime() &&
+      Date.now() < launchWindow.expiresAt.getTime() &&
+      !isLaunchAccessActive(user.launchUnlimitedExpiry)
+    ) {
+      user.launchUnlimitedExpiry = launchWindow.expiresAt;
+      await user.save();
     }
 
     // Auto-heal unlimited pass if verified payment exists in PaymentModel

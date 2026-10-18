@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getUserFromDB, updateUserCreditStatusInDB, syncUserWithMongoDB } from '@/lib/dbServices';
+import {
+  getLaunchAccessWindow,
+  getUserFromDB,
+  isLaunchAccessActive,
+  updateUserCreditStatusInDB,
+  syncUserWithMongoDB,
+} from '@/lib/dbServices';
 import PaymentModel from '@/models/PaymentModel';
 
 export async function GET(request: NextRequest) {
@@ -38,6 +44,7 @@ export async function GET(request: NextRequest) {
     }
 
     let isUnlimited = !!user.isUnlimited;
+    const hasLaunchAccess = isLaunchAccessActive(user.launchUnlimitedExpiry);
 
     // Check pass expiration
     if (isUnlimited && user.unlimitedExpiry && new Date(user.unlimitedExpiry).getTime() < Date.now()) {
@@ -74,11 +81,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const launchWindow = getLaunchAccessWindow();
+    const effectiveExpiry =
+      user?.unlimitedExpiry && new Date(user.unlimitedExpiry).getTime() > Date.now()
+        ? user.unlimitedExpiry
+        : user?.launchUnlimitedExpiry;
+
     return NextResponse.json({
       email: user?.email || userEmail,
-      credits: isUnlimited ? Math.max(user?.credits ?? 1, 999) : (user?.credits ?? 1),
-      isUnlimited,
-      unlimitedExpiry: user?.unlimitedExpiry ? new Date(user.unlimitedExpiry).toISOString() : undefined,
+      credits: isUnlimited || hasLaunchAccess ? Math.max(user?.credits ?? 1, 999) : (user?.credits ?? 1),
+      isUnlimited: isUnlimited || hasLaunchAccess,
+      unlimitedExpiry: effectiveExpiry ? new Date(effectiveExpiry).toISOString() : undefined,
+      launchAccessExpiresAt: launchWindow.expiresAt.toISOString(),
       contributedCount: user?.contributedCount ?? 0,
     });
   } catch (error: any) {

@@ -19,6 +19,7 @@ export interface IUser extends Document {
   credits: number;
   isUnlimited: boolean;
   unlimitedExpiry?: Date;
+  launchUnlimitedExpiry?: Date;
   contributedCount: number;
   potdStreak: number;
   potdLastSolvedDate?: string;
@@ -56,6 +57,7 @@ const UserSchema: Schema<IUser> = new Schema(
     credits: { type: Number, default: 1 },
     isUnlimited: { type: Boolean, default: false },
     unlimitedExpiry: { type: Date },
+    launchUnlimitedExpiry: { type: Date },
     contributedCount: { type: Number, default: 0 },
     potdStreak: { type: Number, default: 0 },
     potdLastSolvedDate: { type: String },

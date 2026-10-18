@@ -26,7 +26,7 @@ import {
   X,
   ArrowRight,
 } from "lucide-react";
-
+import AnnouncementBar from "./AnnouncementBar";
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -87,7 +87,7 @@ export default function Navbar() {
       setIsSearching(true);
       try {
         const res = await fetch(
-          `/api/questions?search=${encodeURIComponent(searchQuery.trim())}&pageSize=6`
+          `/api/questions?search=${encodeURIComponent(searchQuery.trim())}&pageSize=6`,
         );
         if (res.ok) {
           const data = await res.json();
@@ -116,13 +116,17 @@ export default function Navbar() {
       return;
     }
 
-    update();
-
     if (session?.user?.email) {
+      setCredits(null);
+      setIsUnlimited(
+        !!(session.user as typeof session.user & { isUnlimited?: boolean }).isUnlimited
+      );
       fetchUserCreditsFromDB(session.user.email).then((uState) => {
         setCredits(uState.credits);
         setIsUnlimited(uState.isUnlimited);
       });
+    } else {
+      update();
     }
 
     window.addEventListener("storage", update);
@@ -170,6 +174,12 @@ export default function Navbar() {
 
   return (
     <>
+      <AnnouncementBar
+        id="launch-day-special"
+        message="We're live! Launch day special: unlimited OAs, today only."
+        linkText="Claim your spot"
+        href="/contest"
+      />
       <header className="sticky top-0 z-40 w-full border-b border-[#2d2d2d] bg-[#141414]/95 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-[1600px] h-14 items-center justify-between px-3 sm:px-6 lg:px-8">
           {/* Left section: Favicon Logo + Navigation Links + Divider + Secondary Links + Pricing */}
@@ -303,7 +313,9 @@ export default function Navbar() {
             >
               <span className="flex items-center gap-1.5">
                 <Search className="h-3.5 w-3.5 text-zinc-400" />
-                <span className="text-[11px] text-zinc-400 font-normal">Search</span>
+                <span className="text-[11px] text-zinc-400 font-normal">
+                  Search
+                </span>
               </span>
               <kbd className="rounded bg-[#141414] border border-white/10 px-1.5 py-0.2 text-[9px] font-mono text-zinc-400">
                 Ctrl K
@@ -363,7 +375,7 @@ export default function Navbar() {
                   <div className="h-5 flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 text-[10px] font-mono font-bold text-amber-400 flex-shrink-0">
                     <span className="text-[11px]">🪙</span>
                     <span>
-                      {isUnlimited ? "∞" : credits !== null ? credits : 3}
+                      {isUnlimited ? "∞" : credits !== null ? credits : "..."}
                     </span>
                   </div>
                 </button>
@@ -401,7 +413,9 @@ export default function Navbar() {
                       <span className="text-zinc-400">Credits Remaining:</span>
                       <span className="text-amber-400 font-bold flex items-center gap-1">
                         <span>🪙</span>
-                        <span>{isUnlimited ? "Unlimited" : `${credits ?? 3} Pass`}</span>
+                        <span>
+                          {isUnlimited ? "Unlimited" : credits !== null ? `${credits} Pass` : "Loading..."}
+                        </span>
                       </span>
                     </div>
 
@@ -550,7 +564,9 @@ export default function Navbar() {
                     type="button"
                     onClick={() => {
                       setIsSearchOpen(false);
-                      router.push(`/questions?search=${encodeURIComponent(q.title)}`);
+                      router.push(
+                        `/questions?search=${encodeURIComponent(q.title)}`,
+                      );
                     }}
                     className="w-full flex items-center justify-between p-2.5 rounded-xl text-left hover:bg-[#252525] transition group border border-transparent hover:border-white/[0.06]"
                   >
@@ -568,8 +584,8 @@ export default function Navbar() {
                           q.difficulty === "Easy"
                             ? "bg-emerald-500/15 text-emerald-400"
                             : q.difficulty === "Medium"
-                            ? "bg-amber-500/15 text-amber-400"
-                            : "bg-rose-500/15 text-rose-400"
+                              ? "bg-amber-500/15 text-amber-400"
+                              : "bg-rose-500/15 text-rose-400"
                         }`}
                       >
                         {q.difficulty}

@@ -2,11 +2,26 @@
 "use client";
 
 import { signIn, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { resetCreditsInMemory } from "@/lib/userCredits";
 
-export default function GoogleSignInButton() {
+type GoogleSignInButtonProps = {
+  callbackUrl?: string;
+  children?: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+};
+
+export default function GoogleSignInButton({
+  callbackUrl,
+  children = "Sign In",
+  className = "flex items-center gap-1.5 rounded-lg border border-[#383838] bg-[#282828] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-[#383838]",
+  style,
+}: GoogleSignInButtonProps) {
   const { update } = useSession();
+  const router = useRouter();
 
   useEffect(() => {
     const handlePopupMessage = async (
@@ -21,16 +36,21 @@ export default function GoogleSignInButton() {
 
       try {
         await update();
+        if (callbackUrl) {
+          router.push(callbackUrl);
+          return;
+        }
       } catch (error) {
         console.error("Failed to refresh the Google sign-in session:", error);
       } finally {
-        window.location.reload();
+        if (!callbackUrl) {
+          window.location.reload();
+        }
       }
     };
-
     window.addEventListener("message", handlePopupMessage);
     return () => window.removeEventListener("message", handlePopupMessage);
-  }, [update]);
+  }, [callbackUrl, router, update]);
 
   const handleGoogleSignIn = () => {
     resetCreditsInMemory();
@@ -51,16 +71,18 @@ export default function GoogleSignInButton() {
 
     if (!popup) {
       // Popup blocked: fall back to normal sign-in.
-      signIn("google");
+      signIn("google", { callbackUrl });
     }
   };
 
   return (
     <button
+      type="button"
       onClick={handleGoogleSignIn}
-      className="flex items-center gap-1.5 rounded-lg border border-[#383838] bg-[#282828] px-3 py-1.5 text-xs font-semibold text-zinc-200 transition hover:bg-[#383838]"
+      className={className}
+      style={style}
     >
-      Sign In
+      {children}
     </button>
   );
 }

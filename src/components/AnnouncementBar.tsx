@@ -1,6 +1,8 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useSyncExternalStore } from "react";
+import GoogleSignInButton from "./GoogleSignInButton";
 
 type Props = {
   /** Unique id per announcement. Change it when you post a new one so it shows again. */
@@ -9,6 +11,7 @@ type Props = {
   /** Optional link, e.g. "/changelog" */
   href?: string;
   linkText?: string;
+  requiresAuth?: boolean;
   /** Let users close the bar (remembered in localStorage). Default: true */
   dismissible?: boolean;
 };
@@ -18,8 +21,10 @@ export default function AnnouncementBar({
   message,
   href,
   linkText = "Learn more",
+  requiresAuth = false,
   dismissible = true,
 }: Props) {
+  const { data: session } = useSession();
   const storageKey = `announcement-dismissed:${id}`;
   const subscribe = (onStoreChange: () => void) => {
     const handleStorageChange = (event: StorageEvent) => {
@@ -69,12 +74,21 @@ export default function AnnouncementBar({
         {href && (
           <>
             {" "}
-            <a
-              href={href}
-              className="font-semibold underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
-            >
-              {linkText}
-            </a>
+            {requiresAuth && !session?.user ? (
+              <GoogleSignInButton
+                callbackUrl={href}
+                className="inline border-0 bg-transparent p-0 font-semibold text-black underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+              >
+                {linkText}
+              </GoogleSignInButton>
+            ) : (
+              <a
+                href={href}
+                className="font-semibold underline underline-offset-2 hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black"
+              >
+                {linkText}
+              </a>
+            )}
           </>
         )}
       </p>
