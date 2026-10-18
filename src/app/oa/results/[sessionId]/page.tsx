@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { OASession, Question } from '@/types/oa';
 import DifficultyBadge from '@/components/DifficultyBadge';
 import CodeEditor from '@/components/CodeEditor';
@@ -19,6 +20,7 @@ import {
   X,
   BookOpen,
   Flame,
+  Swords,
 } from 'lucide-react';
 
 export default function OAResultsPage({
@@ -27,8 +29,10 @@ export default function OAResultsPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = use(params);
+  const { data: authSession } = useSession();
 
   const [session, setSession] = useState<OASession | null>(null);
+  const [room, setRoom] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [viewCodeQuestion, setViewCodeQuestion] = useState<Question | null>(null);
 
@@ -39,6 +43,16 @@ export default function OAResultsPage({
         if (res.ok) {
           const sess = await res.json();
           setSession(sess);
+
+          if (sess.roomId) {
+            try {
+              const rRes = await fetch(`/api/room/${sess.roomId}`);
+              if (rRes.ok) {
+                const rData = await rRes.json();
+                setRoom(rData);
+              }
+            } catch {}
+          }
 
           const pct = (sess.totalScore / (sess.maxScore || 1)) * 100;
           if (pct >= 50) {
@@ -90,8 +104,105 @@ export default function OAResultsPage({
 
   const grade = getGrade(scorePct);
 
+  // 1v1 Duel Victory / Defeat Determination
+  const myEmail = (session.userEmail || authSession?.user?.email || '').toLowerCase();
+  const is1v1Duel = (room?.roomType === '1v1_duel' || !!room?.winnerEmail || !!session.roomId);
+  const isWinner = !!(room?.winnerEmail && myEmail && room.winnerEmail.toLowerCase() === myEmail);
+  const isLoser = !!(room?.winnerEmail && myEmail && room.winnerEmail.toLowerCase() !== myEmail);
+  const opponent = room?.members?.find((m: any) => m.email?.toLowerCase() !== myEmail);
+
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-10 space-y-8">
+      {/* 1v1 Code Duel Head-to-Head Banner */}
+      {is1v1Duel && (
+        <div className={`rounded-2xl border p-6 sm:p-8 text-center space-y-6 shadow-2xl ${
+          isWinner
+            ? 'border-emerald-500/50 bg-gradient-to-b from-emerald-500/15 via-[#202020] to-[#181818]'
+            : isLoser
+            ? 'border-rose-500/50 bg-gradient-to-b from-rose-500/15 via-[#202020] to-[#181818]'
+            : 'border-amber-500/40 bg-[#202020]'
+        }`}>
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className={`h-16 w-16 rounded-2xl flex items-center justify-center border shadow-xl ${
+              isWinner
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                : isLoser
+                ? 'bg-rose-500/20 border-rose-500/50 text-rose-400'
+                : 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+            }`}>
+              <Swords className="h-8 w-8" />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-zinc-400">
+                1v1 Code Duel Result
+              </div>
+              <h1 className={`text-3xl sm:text-4xl font-extrabold tracking-tight font-mono ${
+                isWinner ? 'text-emerald-400' : isLoser ? 'text-rose-400' : 'text-white'
+              }`}>
+                {isWinner ? '⚔️ VICTORY!' : isLoser ? '⚔️ DEFEAT' : 'MATCH CONCLUDED'}
+              </h1>
+              <p className="text-sm text-zinc-300 max-w-md mx-auto">
+                {isWinner
+                  ? `Outstanding! You submitted an accepted solution first and defeated ${opponent?.name || opponent?.email || 'your opponent'}.`
+                  : isLoser
+                  ? `Match ended in defeat. ${opponent?.name || opponent?.email || 'Your opponent'} secured the victory (or screen was exited / forfeited).`
+                  : 'The 1v1 duel match has concluded.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Head-to-Head Duel Comparison Card */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-4 max-w-xl mx-auto pt-2">
+            {/* You */}
+            <div className={`p-4 rounded-xl border text-center space-y-1 ${
+              isWinner
+                ? 'bg-emerald-500/10 border-emerald-500/40'
+                : 'bg-[#252525] border-zinc-700'
+            }`}>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">You</div>
+              <div className="font-bold text-sm text-white truncate">{session.userEmail || 'You'}</div>
+              <div className={`text-xs font-mono font-bold ${isWinner ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                {isWinner ? '👑 Winner' : 'Defeated'}
+              </div>
+            </div>
+
+            <div className="text-zinc-500 font-mono text-xs font-bold px-2">VS</div>
+
+            {/* Opponent */}
+            <div className={`p-4 rounded-xl border text-center space-y-1 ${
+              isLoser
+                ? 'bg-emerald-500/10 border-emerald-500/40'
+                : 'bg-[#252525] border-zinc-700'
+            }`}>
+              <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">Opponent</div>
+              <div className="font-bold text-sm text-white truncate">{opponent?.name || opponent?.email || 'Opponent'}</div>
+              <div className={`text-xs font-mono font-bold ${isLoser ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                {isLoser ? '👑 Winner' : 'Defeated'}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Duel Action Buttons */}
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
+            <Link
+              href="/join"
+              className="flex items-center gap-2 rounded-xl bg-[#ffa116] px-5 py-2.5 font-bold text-black text-xs hover:brightness-110 transition shadow-lg"
+            >
+              <Swords className="h-4 w-4" />
+              Start New Duel / Rematch
+            </Link>
+            <Link
+              href="/profile"
+              className="flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800 px-5 py-2.5 font-semibold text-zinc-200 hover:text-white hover:bg-zinc-700 transition text-xs"
+            >
+              <Trophy className="h-4 w-4 text-amber-400" />
+              View Duel Record & Rating
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Top Banner Card */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center space-y-6">
         <div className="inline-flex h-14 w-14 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">

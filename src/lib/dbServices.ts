@@ -132,7 +132,9 @@ export async function saveOASessionToDB(session: OASession, userEmail?: string) 
       { sessionId: session.id },
       {
         sessionId: session.id,
-        userEmail: normEmail,
+        userEmail: normEmail || session.userEmail,
+        roomId: session.roomId,
+        contestId: session.contestId,
         title: session.title,
         timeLimitMinutes: session.timeLimitMinutes,
         config: session.config,
@@ -164,6 +166,8 @@ export async function getOASessionFromDB(sessionId: string) {
     return {
       id: doc.sessionId,
       title: doc.title,
+      roomId: doc.roomId,
+      contestId: doc.contestId,
       createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
       startedAt: doc.startedAt ? doc.startedAt.toISOString() : new Date().toISOString(),
       completedAt: doc.completedAt ? doc.completedAt.toISOString() : undefined,

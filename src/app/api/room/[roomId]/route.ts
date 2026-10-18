@@ -8,6 +8,7 @@ import { OASession, OAFilterConfig, Question } from '@/types/oa';
 import { saveSessionServer } from '@/lib/sessionStore';
 import { saveOASessionToDB, getUserFromDB, updateUserCreditStatusInDB, syncUserWithMongoDB } from '@/lib/dbServices';
 import PaymentModel from '@/models/PaymentModel';
+import UserModel from '@/models/User';
 
 // GET /api/room/[roomId] — poll room state
 export async function GET(
@@ -26,9 +27,11 @@ export async function GET(
     roomId: room.roomId,
     inviteCode: room.inviteCode,
     title: room.title,
+    roomType: room.roomType || '1v1_duel',
     creatorEmail: room.creatorEmail,
     members: room.members,
     status: room.status,
+    winnerEmail: room.winnerEmail,
     oaConfig: room.oaConfig,
     startedAt: room.startedAt,
   });
@@ -53,6 +56,104 @@ export async function POST(
 
   const body = await request.json();
   const { action } = body;
+
+  // Toggle ready status for 1v1 duel
+  if (action === 'toggle_ready') {
+    const member = room.members.find(
+      (m) => m.email.toLowerCase() === session.user!.email!.toLowerCase()
+    );
+    if (member) {
+      member.isReady = !member.isReady;
+      await room.save();
+    }
+    return NextResponse.json({ ok: true, members: room.members });
+  }
+
+  // Set room mode (1v1 duel vs group mock)
+  if (action === 'set_room_type') {
+    if (room.creatorEmail.toLowerCase() !== session.user.email.toLowerCase()) {
+      return NextResponse.json({ error: 'Only creator can change duel mode.' }, { status: 403 });
+    }
+    room.roomType = body.roomType === 'group_mock' ? 'group_mock' : '1v1_duel';
+    await room.save();
+    return NextResponse.json({ ok: true, roomType: room.roomType });
+  }
+
+  // Forfeit duel when screen/fullscreen is exited
+  if (action === 'forfeit_duel') {
+    if (!room.winnerEmail) {
+      const opponent = room.members.find(
+        (m) => m.email.toLowerCase() !== session.user!.email!.toLowerCase()
+      );
+      if (opponent) {
+        room.winnerEmail = opponent.email;
+      }
+      room.status = 'completed';
+
+      try {
+        const loserUser = await UserModel.findOne({ email: session.user.email.toLowerCase() });
+        if (loserUser) {
+          loserUser.duelLosses = (loserUser.duelLosses || 0) + 1;
+          await loserUser.save();
+        }
+        if (opponent) {
+          const winnerUser = await UserModel.findOne({ email: opponent.email.toLowerCase() });
+          if (winnerUser) {
+            winnerUser.duelWins = (winnerUser.duelWins || 0) + 1;
+            await winnerUser.save();
+          }
+        }
+      } catch (e) {
+        console.error('Error handling forfeit_duel stats:', e);
+      }
+      await room.save();
+    }
+    return NextResponse.json({ ok: true, room, winnerEmail: room.winnerEmail, status: room.status });
+  }
+
+  // Live progress telemetry or finish duel
+  if (action === 'update_progress' || action === 'finish_duel') {
+    const { problemsSolved, totalScore, currentQuestionIndex, isFinished, solutionAccepted } = body;
+    const member = room.members.find(
+      (m) => m.email.toLowerCase() === session.user!.email!.toLowerCase()
+    );
+    if (member) {
+      if (typeof problemsSolved === 'number') member.problemsSolved = problemsSolved;
+      if (typeof totalScore === 'number') member.totalScore = totalScore;
+      if (typeof currentQuestionIndex === 'number') member.currentQuestionIndex = currentQuestionIndex;
+      if (solutionAccepted) member.problemsSolved = Math.max(member.problemsSolved || 0, 1);
+
+      // In 1v1 duel, if solution is accepted or candidate finished, award victory if not already claimed
+      const shouldFinishDuel = (action === 'finish_duel' || isFinished || solutionAccepted);
+      if (shouldFinishDuel && !room.winnerEmail) {
+        room.winnerEmail = session.user.email;
+        room.status = 'completed';
+
+        // Update winner and loser duel stats
+        try {
+          const winnerUser = await UserModel.findOne({ email: session.user.email.toLowerCase() });
+          if (winnerUser) {
+            winnerUser.duelWins = (winnerUser.duelWins || 0) + 1;
+            await winnerUser.save();
+          }
+          const opponent = room.members.find(
+            (m) => m.email.toLowerCase() !== session.user!.email!.toLowerCase()
+          );
+          if (opponent) {
+            const loserUser = await UserModel.findOne({ email: opponent.email.toLowerCase() });
+            if (loserUser) {
+              loserUser.duelLosses = (loserUser.duelLosses || 0) + 1;
+              await loserUser.save();
+            }
+          }
+        } catch (e) {
+          console.error('Error updating duel match win/loss:', e);
+        }
+      }
+      await room.save();
+    }
+    return NextResponse.json({ ok: true, room, winnerEmail: room.winnerEmail, status: room.status });
+  }
 
   // Only creator can configure / start
   if (action === 'add_members') {
@@ -207,6 +308,8 @@ export async function POST(
         const oaSession: OASession = {
           id: sessionId,
           title: config.title || `${room.title} — OA`,
+          roomId: room.roomId,
+          userEmail: member.email,
           createdAt: now,
           startedAt: now,
           timeLimitMinutes: config.timeLimitMinutes || 60,

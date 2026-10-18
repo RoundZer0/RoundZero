@@ -3,6 +3,8 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export interface IOASession extends Document {
   sessionId: string;
   userEmail?: string;
+  roomId?: string;
+  contestId?: string;
   title: string;
   timeLimitMinutes: number;
   config: any;
@@ -20,6 +22,8 @@ const OASessionSchema: Schema<IOASession> = new Schema(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
     userEmail: { type: String, index: true },
+    roomId: { type: String, index: true },
+    contestId: { type: String, index: true },
     title: { type: String, required: true },
     timeLimitMinutes: { type: Number, default: 60 },
     config: { type: Schema.Types.Mixed },

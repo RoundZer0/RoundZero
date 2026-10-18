@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { OASession } from "@/types/oa";
 import { getSessionLocal, saveSessionLocal } from "@/lib/sessionStore";
 import { getStarterTemplate } from "@/lib/starterTemplates";
@@ -32,6 +33,8 @@ import {
   ChevronDown,
   CloudUpload,
   Flame,
+  Swords,
+  Trophy,
 } from "lucide-react";
 
 type OutputState = "passed" | "failed" | "error";
@@ -117,6 +120,7 @@ export default function TakeOAPage({
 }) {
   const { sessionId } = use(params);
   const router = useRouter();
+  const { data: authSession } = useSession();
 
   const [session, setSession] = useState<OASession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -157,10 +161,57 @@ export default function TakeOAPage({
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasEnteredFullscreen, setHasEnteredFullscreen] = useState(false);
+  const hasEnteredFullscreenRef = useRef(false);
   const [fsSupported, setFsSupported] = useState(false);
   const [fsError, setFsError] = useState("");
   const isFinishedRef = useRef(false);
   const [isFinished, setIsFinished] = useState(false);
+  const [duelRoom, setDuelRoom] = useState<any>(null);
+
+  const myEmail = (session?.userEmail || authSession?.user?.email || "").toLowerCase();
+
+  useEffect(() => {
+    if (!session?.roomId || isFinishedRef.current) return;
+    const fetchDuelRoom = async () => {
+      try {
+        const res = await fetch(`/api/room/${session.roomId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setDuelRoom(data);
+
+          // In 1v1 duel, if match concluded and winner crowned:
+          if (data.status === "completed" && data.winnerEmail && !isFinishedRef.current) {
+            const isWinner = myEmail && data.winnerEmail.toLowerCase() === myEmail;
+            if (!isWinner) {
+              // Opponent won! Conclude match and redirect to results with DEFEAT
+              isFinishedRef.current = true;
+              setIsFinished(true);
+              if (typeof document !== "undefined" && document.fullscreenElement) {
+                try {
+                  await document.exitFullscreen();
+                } catch {}
+              }
+              await fetch(`/api/oa/${session.id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  finishAssessment: true,
+                  sessionData: {
+                    ...session,
+                    status: "completed",
+                  },
+                }),
+              }).catch(() => {});
+              router.push(`/oa/results/${session.id}`);
+            }
+          }
+        }
+      } catch {}
+    };
+    fetchDuelRoom();
+    const interval = setInterval(fetchDuelRoom, 1500);
+    return () => clearInterval(interval);
+  }, [session?.roomId, session?.id, myEmail, router]);
 
   const enterFullscreen = async () => {
     setFsError("");
@@ -173,6 +224,7 @@ export default function TakeOAPage({
         await document.documentElement.requestFullscreen();
         setIsFullscreen(true);
         setHasEnteredFullscreen(true);
+        hasEnteredFullscreenRef.current = true;
       } else {
         setFsSupported(false);
         setFsError("Fullscreen is not supported by this browser.");
@@ -190,7 +242,7 @@ export default function TakeOAPage({
     }
   };
 
-  const handleFinishAssessment = useCallback(async () => {
+  const handleFinishAssessment = useCallback(async (isForfeit = false) => {
     if (isFinishedRef.current) return;
     isFinishedRef.current = true;
     setIsFinished(true);
@@ -202,12 +254,25 @@ export default function TakeOAPage({
     }
 
     try {
+      if (!session?.id) return;
+
+      // Notify duel room FIRST of match completion or forfeit
+      if (session?.roomId) {
+        await fetch(`/api/room/${session.roomId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: isForfeit ? "forfeit_duel" : "update_progress",
+            isFinished: true,
+            totalScore: session.totalScore,
+          }),
+        }).catch(() => {});
+      }
+
       const payload = {
         finishAssessment: true,
         sessionData: session,
       };
-
-      if (!session?.id) return;
 
       const res = await fetch(`/api/oa/${session.id}`, {
         method: "POST",
@@ -215,7 +280,7 @@ export default function TakeOAPage({
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data?.session) {
         saveSessionLocal(data.session);
       }
@@ -297,7 +362,7 @@ export default function TakeOAPage({
     loadSession();
   }, [sessionId]);
 
-  // Fullscreen Enforcement & ESC key exit effect (Top level hook call)
+  // Fullscreen Enforcement & Screen Exit effect (ESC key, fullscreen change, visibility change, beforeunload)
   useEffect(() => {
     if (!session || loading) return;
     if (session.config?.isPOTD) return;
@@ -312,29 +377,66 @@ export default function TakeOAPage({
         typeof document !== "undefined" && !!document.fullscreenElement;
       setIsFullscreen(isFS);
 
-      // If user exits fullscreen mode during active assessment, end assessment immediately
-      if (!isFS && hasEnteredFullscreen && !isFinishedRef.current) {
-        console.warn("User exited fullscreen mode. Ending assessment.");
-        handleFinishAssessment();
+      if (isFS) {
+        hasEnteredFullscreenRef.current = true;
+        setHasEnteredFullscreen(true);
+      } else if (hasEnteredFullscreenRef.current && !isFinishedRef.current) {
+        console.warn("User exited fullscreen mode. Forfeiting duel / ending assessment.");
+        handleFinishAssessment(true);
       }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !isFinishedRef.current) {
-        console.warn("User pressed Escape. Ending assessment.");
-        handleFinishAssessment();
+        console.warn("User pressed Escape. Forfeiting duel / ending assessment.");
+        handleFinishAssessment(true);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden" &&
+        hasEnteredFullscreenRef.current &&
+        !isFinishedRef.current
+      ) {
+        console.warn("User switched tab / minimized window. Forfeiting duel / ending assessment.");
+        handleFinishAssessment(true);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      if (!isFinishedRef.current && session?.roomId) {
+        try {
+          navigator.sendBeacon(
+            `/api/room/${session.roomId}`,
+            new Blob(
+              [
+                JSON.stringify({
+                  action: "forfeit_duel",
+                  userEmail: myEmail,
+                }),
+              ],
+              { type: "application/json" }
+            )
+          );
+        } catch {}
       }
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
       window.clearTimeout(fullscreenRequest);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [session, loading, hasEnteredFullscreen, handleFinishAssessment]);
+  }, [session, loading, handleFinishAssessment, myEmail]);
 
   // Drag-to-resize for the vertical splitter
   useEffect(() => {
@@ -609,7 +711,50 @@ export default function TakeOAPage({
         setSelectedSubIdx(0);
 
         // All tests passed -> jump to the Submissions tab
-        if (passed) setLeftTab("submission");
+        if (passed) {
+          setLeftTab("submission");
+          if (session?.roomId) {
+            // In 1v1 duel, solution accepted means immediate VICTORY!
+            isFinishedRef.current = true;
+            setIsFinished(true);
+
+            if (typeof document !== "undefined" && document.fullscreenElement) {
+              try {
+                await document.exitFullscreen();
+              } catch {}
+            }
+
+            // Award victory on room API
+            await fetch(`/api/room/${session.roomId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "finish_duel",
+                solutionAccepted: true,
+                isFinished: true,
+                problemsSolved: 1,
+                totalScore: (session.totalScore || 0) + (currentQuestion.points || 100),
+              }),
+            }).catch(() => {});
+
+            // Complete session
+            await fetch(`/api/oa/${session.id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                finishAssessment: true,
+                sessionData: {
+                  ...session,
+                  status: "completed",
+                },
+              }),
+            }).catch(() => {});
+
+            // Redirect winner directly to results page
+            router.push(`/oa/results/${session.id}`);
+            return;
+          }
+        }
       }
     } catch (e) {
       console.error("Error submitting code", e);
@@ -664,10 +809,10 @@ export default function TakeOAPage({
   return (
     <div className="flex flex-col h-screen w-full bg-[#1a1a1a] text-zinc-100 overflow-hidden select-none">
       {/* ===================== Top Navbar ===================== */}
-      <header className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-[#383838] bg-[#282828] px-3">
-        {/* Left: title + question navigator */}
-        <div className="flex items-center gap-3 min-w-0">
-          {session.config?.isPOTD ? (
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[#383838] bg-[#242424] px-3 sm:px-4 gap-2 sm:gap-4 select-none">
+        {/* Left: title + question switcher */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
+          {session.config?.isPOTD && (
             <Link
               href="/potd"
               className="flex items-center gap-1 text-zinc-400 hover:text-white text-xs font-semibold px-2 py-1 rounded bg-[#1e1e1e] hover:bg-[#383838] border border-[#383838] transition shrink-0"
@@ -676,30 +821,33 @@ export default function TakeOAPage({
               <ArrowLeft className="h-3.5 w-3.5 text-[#ffa116]" />
               <span className="hidden sm:inline">POTD</span>
             </Link>
-          ) : null}
+          )}
 
-          <span className="font-bold text-sm text-white flex items-center gap-1.5 truncate">
-            {session.config?.isPOTD ? (
+          <div className="flex items-center gap-1.5 min-w-0 shrink truncate">
+            {session.roomId ? (
+              <Swords className="h-4 w-4 shrink-0 text-[#ffa116]" />
+            ) : session.config?.isPOTD ? (
               <Flame className="h-4 w-4 shrink-0 text-[#ffa116] fill-[#ffa116]/20" />
             ) : (
               <Sparkles className="h-4 w-4 shrink-0 text-[#ffa116]" />
             )}
-            <span className="truncate">{session.title}</span>
-          </span>
+            <span className="font-bold text-xs sm:text-sm text-white truncate">
+              {session.title}
+            </span>
+          </div>
 
-          <div className="h-5 w-px bg-[#383838]" />
+          <div className="h-4 w-px bg-[#383838] shrink-0 hidden sm:block" />
 
-          <div className="flex items-center gap-1">
+          {/* Question navigator */}
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={() =>
-                switchQuestion(Math.max(0, activeQuestionIndex - 1))
-              }
+              onClick={() => switchQuestion(Math.max(0, activeQuestionIndex - 1))}
               disabled={activeQuestionIndex === 0}
               className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-[#383838] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label="Previous question"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-3.5 w-3.5" />
             </button>
 
             {session.questions.map((q, idx) => {
@@ -713,10 +861,10 @@ export default function TakeOAPage({
                   onClick={() => switchQuestion(idx)}
                   className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-mono font-medium transition ${
                     isActive
-                      ? "bg-[#ffa116] text-[#1a1a1a] font-bold"
+                      ? "bg-[#ffa116] text-[#1a1a1a] font-bold shadow-sm"
                       : isSubmitted
                         ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        : "bg-[#1e1e1e] text-zinc-400 hover:text-white"
+                        : "bg-[#1e1e1e] text-zinc-400 hover:text-white border border-[#383838]"
                   }`}
                 >
                   <span>Q{idx + 1}</span>
@@ -727,63 +875,95 @@ export default function TakeOAPage({
 
             <button
               type="button"
-              onClick={() =>
-                switchQuestion(
-                  Math.min(
-                    session.questions.length - 1,
-                    activeQuestionIndex + 1,
-                  ),
-                )
-              }
+              onClick={() => switchQuestion(Math.min(session.questions.length - 1, activeQuestionIndex + 1))}
               disabled={activeQuestionIndex === session.questions.length - 1}
               className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-[#383838] hover:text-white disabled:opacity-30 disabled:hover:bg-transparent"
               aria-label="Next question"
             >
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Center: Run / Submit (LeetCode style) */}
-        <div className="flex items-center gap-2">
+        {/* Center: Run / Submit + 1v1 Telemetry HUD */}
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleRunSampleTests}
             disabled={isRunningTests || isSubmitting}
-            className="flex items-center gap-1.5 rounded-md bg-[#383838] px-4 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-[#444] hover:text-white transition disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-[#333333] px-3.5 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-[#444] hover:text-white transition disabled:opacity-50"
           >
             {isRunningTests ? (
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#ffa116]" />
             ) : (
               <Play className="h-3.5 w-3.5 text-[#ffa116]" />
             )}
-            Run
+            <span className="hidden sm:inline">Run</span>
           </button>
 
           <button
             type="button"
             onClick={handleSubmitQuestion}
             disabled={isSubmitting || isRunningTests}
-            className="flex items-center gap-1.5 rounded-md bg-[#ffa116] px-4 py-1.5 text-xs font-bold text-[#1a1a1a] hover:bg-[#ffa116]/90 transition disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-[#ffa116] px-3.5 py-1.5 text-xs font-bold text-[#1a1a1a] hover:bg-[#ffa116]/90 transition disabled:opacity-50"
           >
             {isSubmitting ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                Submitting
+                <span className="hidden sm:inline">Submitting</span>
               </>
             ) : (
               <>
                 <CloudUpload className="h-3.5 w-3.5" />
-                Submit
+                <span>Submit</span>
               </>
             )}
           </button>
+
+          {/* 1v1 Live Duel Opponent Telemetry HUD */}
+          {duelRoom && (
+            <div className="flex items-center gap-2 rounded-md bg-[#1e1e1e] border border-amber-500/40 px-2.5 py-1 font-mono text-xs shadow-sm">
+              <Swords className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs">
+                <span className="text-zinc-400 font-semibold hidden md:inline">1v1:</span>
+                <span className="text-emerald-400 font-bold">
+                  You {Object.values(session.submissions || {}).filter((s: any) => s && s.score > 0).length}/{session.questions.length}
+                </span>
+                <span className="text-zinc-600 font-bold">vs</span>
+                {(() => {
+                  const opp = duelRoom.members?.find(
+                    (m: any) => m.email?.toLowerCase() !== (session.userEmail || myEmail).toLowerCase()
+                  );
+                  return (
+                    <span className="text-purple-400 font-bold">
+                      {opp ? `${opp.name?.split(' ')[0] || 'Opp'}: ${opp.problemsSolved || 0}/${session.questions.length}` : 'Waiting'}
+                    </span>
+                  );
+                })()}
+              </div>
+              {duelRoom.winnerEmail && (
+                <span className="rounded bg-amber-500/20 text-amber-400 px-1.5 py-0.5 text-[10px] font-bold">
+                  {duelRoom.winnerEmail.toLowerCase() === (session.userEmail || myEmail).toLowerCase()
+                    ? '🏆 Won!'
+                    : '⚡ Ended'}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Right: fullscreen hint, timer, score, finish */}
-        <div className="flex items-center justify-end gap-3">
-          {session.config?.isPOTD ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-[11px] font-mono text-amber-400">
+        {/* Right: Fullscreen status / warning, Timer, Score, Finish button */}
+        <div className="flex items-center justify-end gap-2 sm:gap-3 shrink-0">
+          {session.roomId ? (
+            <div className="hidden xl:flex items-center gap-1.5 px-2 py-1 rounded bg-rose-500/10 border border-rose-500/30 text-[11px] font-mono text-rose-300">
+              <Maximize className="h-3 w-3 text-rose-400" />
+              <span>Fullscreen Locked</span>
+              <span className="text-rose-400/80 text-[10px] font-sans">
+                (ESC / Exit forfeits)
+              </span>
+            </div>
+          ) : session.config?.isPOTD ? (
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-[11px] font-mono text-amber-400">
               <Flame className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20" />
               <span>Problem of the Day</span>
             </div>
@@ -800,22 +980,24 @@ export default function TakeOAPage({
           <Timer
             timeLimitMinutes={session.timeLimitMinutes}
             startedAt={session.startedAt}
-            onTimeUp={handleFinishAssessment}
+            onTimeUp={() => handleFinishAssessment(false)}
           />
 
-          <div className="text-xs font-mono text-zinc-400 hidden md:block">
-            <span className="text-[#ffa116] font-bold">
-              {session.totalScore}
-            </span>{" "}
-            / {session.maxScore} pts
-          </div>
+          {!session.roomId && (
+            <div className="text-xs font-mono text-zinc-400 hidden lg:block">
+              <span className="text-[#ffa116] font-bold">
+                {session.totalScore}
+              </span>{" "}
+              / {session.maxScore} pts
+            </div>
+          )}
 
           <button
             onClick={() => setShowFinishModal(true)}
-            className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition"
+            className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition shadow-sm"
           >
             <Send className="h-3.5 w-3.5" />
-            Finish
+            <span className="hidden sm:inline">Finish</span>
           </button>
         </div>
       </header>
@@ -1555,10 +1737,10 @@ export default function TakeOAPage({
               </button>
               <button
                 type="button"
-                onClick={handleFinishAssessment}
+                onClick={() => handleFinishAssessment(false)}
                 className="px-5 py-2 rounded-lg bg-emerald-600 font-bold text-xs text-white shadow-md hover:bg-emerald-500"
               >
-                Finalize & Submit
+                {session?.roomId ? "Conclude Duel" : "Finalize & Submit"}
               </button>
             </div>
           </div>
@@ -1576,18 +1758,35 @@ export default function TakeOAPage({
           <div className="w-full max-w-md rounded-2xl border border-[#383838] bg-[#282828] p-6 space-y-6 text-center shadow-2xl">
             <div className="flex flex-col items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#ffa116]/10 border border-[#ffa116]/30">
-                <Maximize className="h-6 w-6 text-[#ffa116]" />
+                {session?.roomId ? (
+                  <Swords className="h-6 w-6 text-[#ffa116]" />
+                ) : (
+                  <Maximize className="h-6 w-6 text-[#ffa116]" />
+                )}
               </div>
               <h2 id="fs-title" className="text-xl font-bold text-white">
-                Fullscreen Mode Required
+                {session?.roomId ? "1v1 Duel Arena Locked" : "Fullscreen Mode Required"}
               </h2>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                This online assessment runs in mandatory Fullscreen Mode.
-                Exiting fullscreen or pressing{" "}
-                <kbd className="px-1.5 py-0.5 rounded bg-[#1e1e1e] border border-[#383838] text-[#ffa116] font-mono">
-                  ESC
-                </kbd>{" "}
-                will automatically finalize and submit your assessment.
+                {session?.roomId ? (
+                  <>
+                    1v1 Code Duels run in strict locked Fullscreen Mode.
+                    Exiting fullscreen, pressing{" "}
+                    <kbd className="px-1.5 py-0.5 rounded bg-[#1e1e1e] border border-[#383838] text-[#ffa116] font-mono">
+                      ESC
+                    </kbd>
+                    , or switching windows will automatically forfeit the duel and award victory to your opponent.
+                  </>
+                ) : (
+                  <>
+                    This online assessment runs in mandatory Fullscreen Mode.
+                    Exiting fullscreen or pressing{" "}
+                    <kbd className="px-1.5 py-0.5 rounded bg-[#1e1e1e] border border-[#383838] text-[#ffa116] font-mono">
+                      ESC
+                    </kbd>{" "}
+                    will automatically finalize and submit your assessment.
+                  </>
+                )}
               </p>
             </div>
 
@@ -1603,8 +1802,17 @@ export default function TakeOAPage({
                 onClick={enterFullscreen}
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#ffa116] px-4 py-3 text-xs font-bold text-[#1a1a1a] hover:bg-[#ffa116]/90 transition shadow-md"
               >
-                <Maximize className="h-4 w-4" />
-                Click to Enter Fullscreen Assessment
+                {session?.roomId ? (
+                  <>
+                    <Swords className="h-4 w-4" />
+                    Enter 1v1 Duel Fullscreen Arena
+                  </>
+                ) : (
+                  <>
+                    <Maximize className="h-4 w-4" />
+                    Click to Enter Fullscreen Assessment
+                  </>
+                )}
               </button>
             )}
 

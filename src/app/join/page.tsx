@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession, signIn } from 'next-auth/react';
 import Link from 'next/link';
-import { RefreshCw, AlertTriangle, ArrowRight, LogIn } from 'lucide-react';
+import { RefreshCw, AlertTriangle, ArrowRight, LogIn, Swords } from 'lucide-react';
 
 const ORANGE = '#ff9f0a';
 
@@ -16,7 +16,34 @@ function JoinRoomContent() {
   const codeParam = searchParams.get('code') || '';
   const [inviteCode, setInviteCode] = useState(codeParam.toUpperCase());
   const [joining, setJoining] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+
+  const handleCreateDuel = async () => {
+    if (status !== 'authenticated') {
+      signIn('google', { callbackUrl: '/join' });
+      return;
+    }
+    setCreating(true);
+    setError('');
+    try {
+      const res = await fetch('/api/room/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: '1v1 Code Duel' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to create 1v1 duel.');
+        setCreating(false);
+        return;
+      }
+      router.push(`/room/${data.roomId}`);
+    } catch {
+      setError('Network error while creating duel.');
+      setCreating(false);
+    }
+  };
 
   useEffect(() => {
     if (codeParam) {
@@ -93,11 +120,12 @@ function JoinRoomContent() {
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ORANGE }} />
             Collaborative Room
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">
-            Join Assessment Room
+          <h1 className="text-xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
+            <Swords className="h-5 w-5 text-[#ffa116]" />
+            1v1 Code Duel & Room Lobby
           </h1>
           <p className="text-xs text-white/40">
-            Enter the 6-character room invite code to join the live session.
+            Challenge a peer to an instant head-to-head match or enter a room invite code.
           </p>
         </div>
 
@@ -116,7 +144,7 @@ function JoinRoomContent() {
         ) : status === 'unauthenticated' ? (
           <div className="space-y-4">
             <p className="text-xs text-white/60 leading-relaxed text-center">
-              You must be signed in to enter rooms. Sign in with your Google account to proceed.
+              You must be signed in to create duels or enter rooms. Sign in with your Google account to proceed.
             </p>
             <button
               onClick={() => signIn('google', { callbackUrl: `/join?code=${encodeURIComponent(inviteCode)}` })}
@@ -128,48 +156,89 @@ function JoinRoomContent() {
             </button>
           </div>
         ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleJoin();
-            }}
-            className="space-y-4"
-          >
-            <div>
-              <label className="block text-[10px] uppercase tracking-widest text-white/50 mb-1.5 font-mono">
-                Invite Code
-              </label>
-              <input
-                type="text"
-                maxLength={8}
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                placeholder="ENTER CODE"
-                className="w-full rounded-xl border border-white/[0.1] bg-[#282828] px-4 py-3 text-center text-lg font-bold font-mono tracking-[0.25em] text-[#ffa116] uppercase placeholder-white/20 focus:border-[#ffa116] focus:outline-none"
-                disabled={joining}
-                autoFocus
-              />
+          <div className="space-y-5">
+            {/* Instant 1v1 Duel Card */}
+            <div className="p-4 rounded-xl border border-[#ff9f0a]/30 bg-[#ff9f0a]/5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[#ffa116]">
+                  <Swords className="h-4 w-4" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Start a 1v1 Duel</span>
+                </div>
+                <span className="text-[10px] font-mono rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-amber-300">
+                  Head-to-Head
+                </span>
+              </div>
+              <p className="text-[11px] text-white/60 leading-relaxed">
+                Create a live 1v1 battle arena, share the 6-character code with your opponent, and race in real-time to solve coding problems.
+              </p>
+              <button
+                type="button"
+                onClick={handleCreateDuel}
+                disabled={creating}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-black transition hover:brightness-110 disabled:opacity-40 shadow-lg"
+                style={{ backgroundColor: ORANGE }}
+              >
+                {creating ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin text-black" />
+                    <span>Creating Duel Arena...</span>
+                  </>
+                ) : (
+                  <>
+                    <Swords className="h-4 w-4 text-black" />
+                    <span>Create 1v1 Code Duel</span>
+                  </>
+                )}
+              </button>
             </div>
 
-            <button
-              type="submit"
-              disabled={joining || !inviteCode.trim()}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider text-black transition hover:brightness-110 disabled:opacity-40 shadow-lg"
-              style={{ backgroundColor: ORANGE }}
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-white/[0.08]" />
+              <span className="text-[10px] font-mono uppercase tracking-widest text-white/30">OR JOIN EXISTING DUEL / ROOM</span>
+              <div className="h-px flex-1 bg-white/[0.08]" />
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleJoin();
+              }}
+              className="space-y-4"
             >
-              {joining ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin text-black" />
-                  <span>Connecting to room...</span>
-                </>
-              ) : (
-                <>
-                  <span>Enter Room</span>
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          </form>
+              <div>
+                <label className="block text-[10px] uppercase tracking-widest text-white/50 mb-1.5 font-mono">
+                  Room / Duel Invite Code
+                </label>
+                <input
+                  type="text"
+                  maxLength={8}
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  placeholder="ENTER 6-CHAR CODE"
+                  className="w-full rounded-xl border border-white/[0.1] bg-[#282828] px-4 py-3 text-center text-lg font-bold font-mono tracking-[0.25em] text-[#ffa116] uppercase placeholder-white/20 focus:border-[#ffa116] focus:outline-none"
+                  disabled={joining}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={joining || !inviteCode.trim()}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-white border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] transition disabled:opacity-40"
+              >
+                {joining ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin text-white" />
+                    <span>Connecting to room...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Enter Duel / Room</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         )}
 
         <div className="border-t border-white/[0.07] pt-4 text-center">

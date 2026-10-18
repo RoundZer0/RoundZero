@@ -156,7 +156,7 @@ export function resetUserCredits(amount = 1, email?: string): UserCreditsState {
   return state;
 }
 
-export function useOACredit(email?: string): { success: boolean; message: string; remainingCredits: number; isUnlimited: boolean } {
+export function consumeOACredit(email?: string): { success: boolean; message: string; remainingCredits: number; isUnlimited: boolean } {
   const state = getUserCredits();
 
   // Check 3-month pass expiry
@@ -184,6 +184,8 @@ export function useOACredit(email?: string): { success: boolean; message: string
 
   return { success: true, message: '1 Credit Used', remainingCredits: state.credits, isUnlimited: false };
 }
+
+export const useOACredit = consumeOACredit;
 
 export function checkOACredit(): { success: boolean; message: string; remainingCredits: number; isUnlimited: boolean } {
   const state = getUserCredits();

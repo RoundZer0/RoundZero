@@ -61,6 +61,8 @@ export interface OASession {
   config: OAFilterConfig;
   questions: Question[];
   userEmail?: string;
+  roomId?: string;
+  contestId?: string;
   submissions: Record<number, Submission>; // questionId -> Submission
   totalScore: number;
   maxScore: number;

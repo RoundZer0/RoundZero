@@ -24,7 +24,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { saveSessionLocal } from '@/lib/sessionStore';
-import { useOACredit, getUserCredits, fetchUserCreditsFromDB } from '@/lib/userCredits';
+import { consumeOACredit, getUserCredits, fetchUserCreditsFromDB } from '@/lib/userCredits';
 import RazorpayPayButton from './RazorpayPayButton';
 import { useSession } from 'next-auth/react';
 import { CreditCard, FilePlus, AlertCircle, Sparkles } from 'lucide-react';
@@ -186,7 +186,7 @@ export default function OACustomizer() {
 
     // Deduct local credit only for unauthenticated guest sessions (logged in users are deducted atomically on the server)
     if (!hasUnlimited && !session?.user?.email) {
-      const creditCheck = useOACredit();
+      const creditCheck = consumeOACredit();
       if (!creditCheck.success) {
         setShowNoCreditsModal(true);
         return;

@@ -22,6 +22,8 @@ import {
   UserPlus,
   AlertTriangle,
   Sparkles,
+  Swords,
+  Trophy,
 } from 'lucide-react';
 import {
   OAFilterConfig,
@@ -38,16 +40,22 @@ const POLL_INTERVAL_MS = 3000;
 interface RoomMember {
   email: string;
   name?: string;
+  image?: string;
   sessionId?: string;
+  isReady?: boolean;
+  problemsSolved?: number;
+  totalScore?: number;
 }
 
 interface RoomData {
   roomId: string;
   inviteCode: string;
   title: string;
+  roomType?: '1v1_duel' | 'group_mock';
   creatorEmail: string;
   members: RoomMember[];
   status: 'waiting' | 'active' | 'completed';
+  winnerEmail?: string;
   oaConfig?: any;
 }
 
@@ -285,6 +293,28 @@ export default function RoomPage({
     router.push('/');
   };
 
+  const handleToggleReady = async () => {
+    try {
+      await fetch(`/api/room/${roomId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle_ready' }),
+      });
+      fetchRoom();
+    } catch {}
+  };
+
+  const handleSetRoomType = async (type: '1v1_duel' | 'group_mock') => {
+    try {
+      await fetch(`/api/room/${roomId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_room_type', roomType: type }),
+      });
+      fetchRoom();
+    } catch {}
+  };
+
   const copyInviteCode = () => {
     if (!room) return;
     navigator.clipboard.writeText(room.inviteCode);
@@ -378,111 +408,209 @@ export default function RoomPage({
         />
       </div>
 
-      {/* Top bar */}
-      <header className="relative z-10 border-b border-white/[0.07] bg-[#202020] px-5 py-4">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="font-bold text-sm hover:opacity-90 transition" style={{ color: ORANGE }}>
-              RoundZero
-            </Link>
-            <span className="text-white/20">/</span>
-            <span className="text-sm text-white/60">Room</span>
-          </div>
-
-          <div className="flex items-center gap-3 text-[11px]">
-            {isOnline ? (
-              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <Wifi className="h-3 w-3" />
-                Live
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-rose-400 font-medium">
-                <WifiOff className="h-3 w-3" />
-                Reconnecting...
-              </span>
-            )}
-
-            {/* Credit Status Badge */}
-            {credits.isUnlimited ? (
-              <div className="flex items-center gap-1.5 rounded-lg border border-[#ffa116]/40 bg-[#ffa116]/10 px-2.5 py-1 font-mono text-xs text-[#ffa116] font-semibold">
-                <Sparkles className="h-3.5 w-3.5 text-[#ffa116]" />
-                <span>Unlimited Pass</span>
-              </div>
-            ) : credits.remainingCredits > 0 ? (
-              <div className="flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#282828] px-2.5 py-1 font-mono text-xs text-zinc-300">
-                <Sparkles className="h-3.5 w-3.5 text-[#ffa116]" />
-                <span>{credits.remainingCredits} Credit(s)</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 font-mono text-xs text-rose-400">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  <span>0 Credits</span>
+      <div className="relative z-10 mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        {/* Unified Room & Duel Header */}
+        <div className="rounded-2xl border border-white/[0.08] bg-[#202020] p-5 sm:p-6 shadow-xl space-y-5">
+          {/* Top Status & Controls Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
+            <div className="flex items-center gap-2.5">
+              {isCreator ? (
+                <div className="flex items-center gap-1.5 bg-[#181818] p-1 rounded-xl border border-white/[0.07]">
+                  <button
+                    type="button"
+                    onClick={() => handleSetRoomType('1v1_duel')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      (room.roomType || '1v1_duel') === '1v1_duel'
+                        ? 'bg-[#ffa116] text-black shadow'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <Swords className="h-3.5 w-3.5" />
+                    <span>1v1 Code Duel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetRoomType('group_mock')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      room.roomType === 'group_mock'
+                        ? 'bg-[#ffa116] text-black shadow'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <Users className="h-3.5 w-3.5" />
+                    <span>Group Mock OA</span>
+                  </button>
                 </div>
-                <Link
-                  href="/pricing"
-                  className="rounded-lg bg-[#ffa116] hover:bg-[#ffa116]/90 px-2.5 py-1 text-xs font-bold text-[#1a1a1a] transition"
-                >
-                  Get Pass
-                </Link>
-              </div>
-            )}
+              ) : (
+                <span className="flex items-center gap-1.5 rounded-lg bg-[#282828] border border-white/[0.08] px-3 py-1 text-xs font-bold text-amber-400 font-mono">
+                  {(room.roomType || '1v1_duel') === '1v1_duel' ? (
+                    <>
+                      <Swords className="h-3.5 w-3.5" />
+                      <span>1v1 Code Duel</span>
+                    </>
+                  ) : (
+                    <>
+                      <Users className="h-3.5 w-3.5" />
+                      <span>Group Mock OA</span>
+                    </>
+                  )}
+                </span>
+              )}
 
-            {!isCreator && (
-              <button
-                onClick={handleLeave}
-                className="flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#282828] px-3 py-1.5 text-xs text-white/60 hover:text-white transition"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Leave
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <div className="relative z-10 mx-auto max-w-5xl px-5 py-10 space-y-6">
-        {/* Room header */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#202020] p-6 shadow-xl">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-1.5" style={{ color: ORANGE }}>
-                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ORANGE }} />
-                Waiting Room
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">{room.title}</h1>
-              <p className="mt-1 text-sm text-white/40">
-                {room.members.length} member{room.members.length !== 1 ? 's' : ''} • Polling every {POLL_INTERVAL_MS / 1000}s
-              </p>
+              {isOnline ? (
+                <span className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-400 font-medium">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 rounded-md bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 text-[11px] text-rose-400 font-medium">
+                  <WifiOff className="h-3 w-3" />
+                  Reconnecting...
+                </span>
+              )}
             </div>
 
-            {/* Invite code */}
-            <div className="flex flex-col items-start gap-2 sm:items-end">
-              <div className="text-[10px] uppercase tracking-widest text-white/40">Invite Code</div>
-              <div className="flex items-center gap-2">
-                <span
-                  className="rounded-lg border border-[#ffa116]/30 bg-[#282828] px-4 py-2 font-mono text-lg font-bold tracking-[0.2em]"
-                  style={{ color: ORANGE }}
-                >
+            <div className="flex items-center gap-3">
+              {/* Invite code & copy */}
+              <div className="flex items-center gap-2 bg-[#181818] border border-white/[0.08] px-3 py-1 rounded-xl">
+                <span className="text-[10px] uppercase font-mono tracking-wider text-white/40">CODE:</span>
+                <span className="font-mono text-sm font-bold tracking-widest text-[#ffa116]">
                   {room.inviteCode}
                 </span>
                 <button
+                  type="button"
                   onClick={copyInviteCode}
-                  className="rounded-lg border border-white/[0.1] bg-[#282828] p-2 text-white/50 transition hover:text-white"
+                  className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white transition"
                   title="Copy code"
                 >
-                  {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                 </button>
               </div>
+
               <button
+                type="button"
                 onClick={copyInviteLink}
-                className="text-[11px] underline hover:brightness-125 transition"
-                style={{ color: ORANGE }}
+                className="hidden sm:inline-flex text-xs text-[#ffa116] hover:underline transition font-mono"
               >
-                Copy invite link
+                Copy Link
               </button>
+
+              {!isCreator && (
+                <button
+                  type="button"
+                  onClick={handleLeave}
+                  className="flex items-center gap-1.5 rounded-lg border border-white/[0.1] bg-[#282828] px-2.5 py-1 text-xs text-rose-300 hover:text-rose-200 hover:bg-rose-500/10 transition"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Leave
+                </button>
+              )}
             </div>
           </div>
+
+          {/* Head-to-Head 1v1 Battle Arena */}
+          {(room.roomType || '1v1_duel') === '1v1_duel' ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="flex items-center gap-2 font-bold text-amber-400">
+                  <Swords className="h-4 w-4 text-amber-400" />
+                  HEAD-TO-HEAD DUEL ARENA
+                </span>
+                <span className="text-zinc-400">
+                  {room.oaConfig ? `${room.oaConfig.questionCount || 2} Problems • ${room.oaConfig.timeLimitMinutes || 45} Mins` : '1st to Solve Wins'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-4">
+                {/* Player 1 (You) */}
+                {(() => {
+                  const me = room.members.find((m) => m.email.toLowerCase() === myEmail.toLowerCase());
+                  return (
+                    <div className="rounded-xl border border-zinc-700 bg-[#252525] p-4 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-amber-500 text-black font-bold flex items-center justify-center text-sm shadow">
+                          {(me?.name || myEmail)[0]?.toUpperCase() || 'Y'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                            <span className="truncate">{me?.name || 'You'}</span>
+                            <span className="rounded bg-white/10 px-1.5 py-0.2 text-[10px] text-zinc-400 font-mono flex-shrink-0">
+                              You
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-400 font-mono truncate">{me?.email}</div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleToggleReady}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition flex-shrink-0 ${
+                          me?.isReady
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-zinc-800 text-amber-400 border-amber-500/30 hover:border-amber-400'
+                        }`}
+                      >
+                        {me?.isReady ? '✓ Ready' : 'Ready Up'}
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                {/* VS Badge */}
+                <div className="flex flex-col items-center justify-center">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 border border-amber-500/40 text-amber-400 font-extrabold text-xs shadow-lg shadow-amber-500/10">
+                    VS
+                  </div>
+                </div>
+
+                {/* Player 2 (Challenger) */}
+                {(() => {
+                  const opponent = room.members.find((m) => m.email.toLowerCase() !== myEmail.toLowerCase());
+                  if (!opponent) {
+                    return (
+                      <div className="rounded-xl border border-dashed border-zinc-700 bg-[#1c1c1c] p-4 flex items-center justify-center text-center">
+                        <div className="space-y-1">
+                          <div className="text-xs text-zinc-400 font-mono">Awaiting Challenger...</div>
+                          <div className="text-[11px] text-amber-400 font-mono font-bold">Share code: {room.inviteCode}</div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="rounded-xl border border-zinc-700 bg-[#252525] p-4 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="h-10 w-10 rounded-full bg-purple-500 text-white font-bold flex items-center justify-center text-sm shadow flex-shrink-0">
+                          {(opponent.name || opponent.email)[0]?.toUpperCase() || 'O'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate">{opponent.name || 'Opponent'}</div>
+                          <div className="text-[11px] text-zinc-400 font-mono truncate">{opponent.email}</div>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border flex-shrink-0 ${
+                          opponent.isReady
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                        }`}
+                      >
+                        {opponent.isReady ? '✓ Ready' : 'Preparing...'}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <h1 className="text-xl font-bold tracking-tight text-white">{room.title}</h1>
+              <p className="text-xs text-white/40">
+                {room.members.length} participant{room.members.length !== 1 ? 's' : ''} connected • Synchronized group assessment
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
@@ -656,8 +784,17 @@ export default function RoomPage({
                     </>
                   ) : (
                     <>
-                      <Play className="h-4 w-4 text-black" />
-                      <span>Start OA for Everyone</span>
+                      {(room.roomType || '1v1_duel') === '1v1_duel' ? (
+                        <>
+                          <Swords className="h-4 w-4 text-black" />
+                          <span>Start 1v1 Code Duel</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="h-4 w-4 text-black" />
+                          <span>Start OA for Everyone</span>
+                        </>
+                      )}
                     </>
                   )}
                 </button>
