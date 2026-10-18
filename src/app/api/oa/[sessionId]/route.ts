@@ -151,6 +151,23 @@ export async function POST(
           console.warn('Error recording POTD solve:', potdErr);
         }
       }
+
+      // If this OA session is part of a Contest, update live leaderboard
+      if ((session.config as any)?.isContest && (session.config as any)?.contestId) {
+        try {
+          const { recordContestSubmission } = await import('@/lib/contest');
+          await recordContestSubmission(
+            (session.config as any).contestId,
+            userEmail,
+            questionId,
+            passedCount === totalTests,
+            score,
+            new Date()
+          );
+        } catch (contestErr) {
+          console.warn('Error recording contest submission:', contestErr);
+        }
+      }
     }
 
     const clientExecution = {

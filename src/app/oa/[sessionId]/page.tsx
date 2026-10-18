@@ -367,26 +367,28 @@ export default function TakeOAPage({
     );
   }
 
-  if (!session) {
+  if (!session || !session.questions || session.questions.length === 0) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-[#1a1a1a] text-white p-4 space-y-4 text-center">
         <AlertCircle className="h-12 w-12 text-rose-500" />
-        <h1 className="text-2xl font-bold">Assessment Session Not Found</h1>
+        <h1 className="text-2xl font-bold">Assessment Questions Unavailable</h1>
         <p className="text-zinc-400 max-w-md text-sm">
-          The requested assessment session could not be retrieved. It may have
-          expired or been deleted.
+          No questions could be found for this assessment session.
         </p>
         <button
           onClick={() => router.push("/")}
           className="px-4 py-2 rounded-lg bg-[#ffa116] text-[#1a1a1a] font-bold text-sm"
         >
-          Return to OA Builder
+          Return to Dashboard
         </button>
       </div>
     );
   }
 
-  const currentQuestion = session.questions[activeQuestionIndex];
+  const currentQuestion = session.questions[activeQuestionIndex] || session.questions[0];
+  if (!currentQuestion) {
+    return null;
+  }
   const currentCode = codeMap[currentQuestion.id] || "";
   const currentLanguage = languageMap[currentQuestion.id] || "python";
   const currentSubmission = session.submissions[currentQuestion.id];

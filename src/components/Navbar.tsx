@@ -21,6 +21,7 @@ import {
   Sparkles,
   LogOut,
   Flame,
+  Clock,
 } from "lucide-react";
 
 export default function Navbar() {
@@ -99,11 +100,12 @@ export default function Navbar() {
 
   const links = [
     { href: "/", label: "OA Builder", icon: Zap },
+    { href: "/contest", label: "Contest", icon: Trophy },
     { href: "/potd", label: "Daily POTD", icon: Flame },
     { href: "/questions", label: "Question Bank", icon: BookOpen },
     { href: "/contribute", label: "Contribute (+1 OA)", icon: FilePlus },
     { href: "/pricing", label: "Pricing & Passes", icon: CreditCard },
-    { href: "/history", label: "History", icon: Trophy },
+    { href: "/history", label: "History", icon: Clock },
   ];
 
   return (
