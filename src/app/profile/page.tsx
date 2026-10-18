@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession, signIn } from 'next-auth/react';
 import {
   Trophy,
@@ -85,6 +85,7 @@ interface ProfileData {
 }
 
 function ProfileContent() {
+  const router = useRouter();
   const { data: session, status: authStatus } = useSession();
   const searchParams = useSearchParams();
   const queryUsername = searchParams.get('u') || '';
@@ -95,7 +96,9 @@ function ProfileContent() {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editUsername, setEditUsername] = useState('');
   const [editBio, setEditBio] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const isOwnProfile =
@@ -114,6 +117,7 @@ function ProfileContent() {
           const data = await res.json();
           setProfile(data);
           setEditName(data.user.name);
+          setEditUsername(data.user.username || data.user.email.split('@')[0]);
           setEditBio(data.user.bio);
         }
       } catch (err) {
@@ -140,24 +144,33 @@ function ProfileContent() {
 
   const handleSaveProfile = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const res = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName, bio: editBio }),
+        body: JSON.stringify({ name: editName, bio: editBio, username: editUsername }),
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         if (profile) {
           setProfile({
             ...profile,
-            user: { ...profile.user, name: data.user.name, bio: data.user.bio },
+            user: {
+              ...profile.user,
+              name: data.user.name,
+              bio: data.user.bio,
+              username: data.user.username,
+            },
           });
         }
         setIsEditing(false);
+      } else {
+        setSaveError(data.error || 'Failed to update profile');
       }
     } catch (e) {
       console.error(e);
+      setSaveError('An unexpected error occurred while saving.');
     } finally {
       setSaving(false);
     }
@@ -180,13 +193,15 @@ function ProfileContent() {
         <UserIcon className="h-12 w-12 text-zinc-600 mb-4" />
         <h2 className="text-xl font-bold mb-2">Profile Not Found</h2>
         <p className="text-zinc-400 text-sm max-w-md mb-6">
-          Sign in or create your RoundZero account to start building your developer portfolio and earning contest ratings.
+          {queryUsername
+            ? `We couldn't find a user matching "@${queryUsername}". Please verify the username or explore public contests.`
+            : 'Sign in or create your RoundZero account to start building your developer portfolio and earning contest ratings.'}
         </p>
         <button
-          onClick={() => signIn('google')}
+          onClick={() => (session ? router.push('/profile') : signIn('google'))}
           className="rounded-xl bg-[#ffa116] px-6 py-2.5 text-xs font-bold text-black hover:brightness-105"
         >
-          Sign In with Google
+          {session ? 'Go to My Profile' : 'Sign In with Google'}
         </button>
       </div>
     );
@@ -261,7 +276,7 @@ function ProfileContent() {
           {/* Quick Edit Panel */}
           {isEditing && (
             <div className="mt-6 border-t border-zinc-800 pt-5 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">Display Name</label>
                   <input
@@ -270,6 +285,18 @@ function ProfileContent() {
                     onChange={(e) => setEditName(e.target.value)}
                     className="w-full rounded-lg bg-[#222222] border border-zinc-700 px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1">Username / Handle</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-xs text-zinc-500 font-mono">@</span>
+                    <input
+                      type="text"
+                      value={editUsername}
+                      onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                      className="w-full rounded-lg bg-[#222222] border border-zinc-700 pl-7 pr-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-zinc-400 mb-1">Bio / Headline</label>
@@ -281,6 +308,7 @@ function ProfileContent() {
                   />
                 </div>
               </div>
+              {saveError && <p className="text-xs text-rose-400">{saveError}</p>}
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => setIsEditing(false)}

@@ -8,13 +8,17 @@ import POTDSubmissionModel from '@/models/POTDSubmissionModel';
 import ContestModel from '@/models/ContestModel';
 import { getRatingTier } from '@/lib/contestRating';
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export async function GET(request: NextRequest) {
   try {
     await connectToDatabase();
     const session = await getServerSession(authOptions);
     const { searchParams } = new URL(request.url);
-    const queryEmail = searchParams.get('email');
-    const queryUsername = searchParams.get('username');
+    const queryEmail = searchParams.get('email')?.trim();
+    const queryUsername = (searchParams.get('username') || searchParams.get('u') || '').trim();
 
     let targetEmail = session?.user?.email;
     if (queryEmail) {
@@ -23,17 +27,52 @@ export async function GET(request: NextRequest) {
 
     let user = null;
     if (queryUsername) {
-      user = await UserModel.findOne({ username: queryUsername.toLowerCase() });
-      if (user) targetEmail = user.email;
+      const cleanU = queryUsername.toLowerCase();
+
+      // 1. Exact username match
+      user = await UserModel.findOne({ username: cleanU });
+
+      // 2. Email match (if query contains @)
+      if (!user && cleanU.includes('@')) {
+        user = await UserModel.findOne({ email: cleanU });
+      }
+
+      // 3. Email prefix match (e.g. rohankumar9aajps -> rohankumar9aajps@gmail.com)
+      if (!user) {
+        user = await UserModel.findOne({
+          email: { $regex: new RegExp(`^${escapeRegex(cleanU)}@`, 'i') },
+        });
+      }
+
+      // 4. Case-insensitive username match
+      if (!user) {
+        user = await UserModel.findOne({
+          username: { $regex: new RegExp(`^${escapeRegex(cleanU)}$`, 'i') },
+        });
+      }
+
+      if (user) {
+        targetEmail = user.email;
+        if (!user.username) {
+          user.username = cleanU;
+          await user.save().catch(() => {});
+        }
+      }
     } else if (targetEmail) {
       user = await UserModel.findOne({ email: targetEmail.toLowerCase() });
+      if (user && !user.username) {
+        user.username = targetEmail.split('@')[0].toLowerCase();
+        await user.save().catch(() => {});
+      }
     }
 
     if (!user && targetEmail) {
       // Auto-create initial profile for signed-in user if missing
+      const defaultUsername = targetEmail.split('@')[0].toLowerCase();
       user = await UserModel.create({
         email: targetEmail.toLowerCase(),
         name: session?.user?.name || targetEmail.split('@')[0],
+        username: defaultUsername,
         image: session?.user?.image || '',
         credits: 1,
         contestRating: 1500,

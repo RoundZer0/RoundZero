@@ -264,6 +264,11 @@ def run_tests():
                 s_b = str(raw_exp).strip().lower()
                 if s_a == s_b:
                     return True
+                # Quote & spacing normalization (e.g. ['x'] vs [x] or ["a","b"] vs [a, b])
+                norm_a = re.sub(r"['\"\s]", "", s_a)
+                norm_b = re.sub(r"['\"\s]", "", s_b)
+                if norm_a and norm_b and norm_a == norm_b:
+                    return True
                 empties = {'none', 'null', 'nil', '[]', '()', '{}', '""', "''", 'nullptr'}
                 if s_a in empties and s_b in empties:
                     return True
@@ -545,6 +550,12 @@ function runTests() {
                 const sA = (a === null || a === undefined ? 'null' : (Array.isArray(a) && a.length === 0 ? '[]' : JSON.stringify(a))).replace(/\\s+/g, '').toLowerCase();
                 const sB = (rawExp || '').replace(/\\s+/g, '').replace(/'/g, '"').toLowerCase();
                 if (sA === sB) return true;
+
+                // Quote & spacing normalization (e.g. ['x'] vs [x] or ["a","b"] vs [a, b])
+                const normA = sA.replace(/['"]/g, '');
+                const normB = sB.replace(/['"]/g, '');
+                if (normA && normB && normA === normB) return true;
+
                 const empties = ['[]', 'null', 'none', 'nil', 'nullptr', 'undefined', '""', "''"];
                 if (empties.includes(sA) && empties.includes(sB)) return true;
                 if (typeof a === 'boolean' && typeof b === 'boolean') return a === b;
@@ -797,10 +808,13 @@ def run_tests
       empties = ['[]', 'null', 'none', 'nil', 'nullptr', '""', "''"]
       s_a = actual_json.gsub(/\\s+/, '').downcase
       s_b = (exp_str || '').gsub(/\\s+/, '').downcase
+      norm_a = s_a.gsub(/['"]/, '')
+      norm_b = s_b.gsub(/['"]/, '')
 
       passed = (actual_val == expected_val) || 
                (actual_json == expected_json) ||
                (s_a == s_b) ||
+               (!norm_a.empty? && norm_a == norm_b) ||
                (empties.include?(s_a) && empties.include?(s_b)) ||
                (actual_val.nil? && empties.include?(s_b))
 
@@ -1391,6 +1405,11 @@ export function areOutputsEquivalent(actualRaw: string, expectedRaw: string): bo
   if (normA === normB) return true;
 
   if (empties.has(normA) && empties.has(normB)) return true;
+
+  // Quote-stripped comparison: handles ['x'] vs [x], ["a","b"] vs [a, b], or unquoted character arrays
+  const strippedA = normA.replace(/['"]/g, '');
+  const strippedB = normB.replace(/['"]/g, '');
+  if (strippedA && strippedB && strippedA === strippedB) return true;
 
   const subA = normA.replace(/\bnone\b/g, 'null').replace(/\bnil\b/g, 'null').replace(/\bnullptr\b/g, 'null');
   const subB = normB.replace(/\bnone\b/g, 'null').replace(/\bnil\b/g, 'null').replace(/\bnullptr\b/g, 'null');

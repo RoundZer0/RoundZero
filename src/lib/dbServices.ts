@@ -32,10 +32,12 @@ export async function syncUserWithMongoDB(email: string, name?: string, image?: 
     if (!normEmail) return null;
 
     let user = await UserModel.findOne(emailQuery(normEmail));
+    const defaultUsername = normEmail.split('@')[0].toLowerCase();
     if (!user) {
       user = await UserModel.create({
         email: normEmail,
         name: name || 'User',
+        username: defaultUsername,
         image: image || '',
         credits: 1,
         isUnlimited: false,
@@ -43,10 +45,18 @@ export async function syncUserWithMongoDB(email: string, name?: string, image?: 
       });
       console.log('Created new MongoDB User:', normEmail);
     } else {
+      let needsSave = false;
       // Ensure the email in DB is always standardized to lowercase
       if (user.email !== normEmail) {
         user.email = normEmail;
-        await user.save();
+        needsSave = true;
+      }
+      if (!user.username) {
+        user.username = defaultUsername;
+        needsSave = true;
+      }
+      if (needsSave) {
+        await user.save().catch(() => {});
       }
     }
 
