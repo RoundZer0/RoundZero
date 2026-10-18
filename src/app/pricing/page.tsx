@@ -61,17 +61,22 @@ export default function PricingPage() {
     ],
   };
 
-  let daysRemaining = 0;
-  let formattedExpiry = '';
-  if (isUnlimited && unlimitedExpiry) {
-    const expMs = new Date(unlimitedExpiry).getTime();
-    daysRemaining = Math.max(0, Math.ceil((expMs - Date.now()) / (1000 * 60 * 60 * 24)));
-    formattedExpiry = new Date(unlimitedExpiry).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  }
+  const [daysRemaining, setDaysRemaining] = useState(0);
+  const [formattedExpiry, setFormattedExpiry] = useState('');
+
+  useEffect(() => {
+    if (isUnlimited && unlimitedExpiry) {
+      const expMs = new Date(unlimitedExpiry).getTime();
+      setDaysRemaining(Math.max(0, Math.ceil((expMs - Date.now()) / (1000 * 60 * 60 * 24))));
+      setFormattedExpiry(
+        new Date(unlimitedExpiry).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      );
+    }
+  }, [isUnlimited, unlimitedExpiry]);
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-10 space-y-8">

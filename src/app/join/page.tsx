@@ -45,19 +45,6 @@ function JoinRoomContent() {
     }
   };
 
-  useEffect(() => {
-    if (codeParam) {
-      setInviteCode(codeParam.toUpperCase());
-    }
-  }, [codeParam]);
-
-  useEffect(() => {
-    // If authenticated and code provided in URL, automatically attempt to join
-    if (status === 'authenticated' && codeParam && !joining && !error) {
-      handleJoin(codeParam.toUpperCase());
-    }
-  }, [status, codeParam]);
-
   const handleJoin = async (codeToJoin?: string) => {
     const code = (codeToJoin || inviteCode).trim().toUpperCase();
     if (!code) {
@@ -93,6 +80,19 @@ function JoinRoomContent() {
       setJoining(false);
     }
   };
+
+  useEffect(() => {
+    if (codeParam) {
+      setInviteCode(codeParam.toUpperCase());
+    }
+  }, [codeParam]);
+
+  useEffect(() => {
+    // If authenticated and code provided in URL, automatically attempt to join
+    if (status === 'authenticated' && codeParam && !joining && !error) {
+      handleJoin(codeParam.toUpperCase());
+    }
+  }, [status, codeParam]);
 
   return (
     <div className="min-h-screen bg-[#181818] text-white flex flex-col items-center justify-center p-6 relative overflow-x-hidden">

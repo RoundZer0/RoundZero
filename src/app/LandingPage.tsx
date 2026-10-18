@@ -249,7 +249,7 @@ export default function LandingPage() {
               <div className="absolute -left-16 top-8 hidden -rotate-[8deg] lg:block">
 
                 <div className="font-serif text-xs italic text-white/30">
-                  let's make this
+                  let&apos;s make this
                   <br />
                   unnecessarily competitive.
                 </div>
