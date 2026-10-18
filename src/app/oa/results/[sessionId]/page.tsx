@@ -6,14 +6,10 @@ import { useSession } from 'next-auth/react';
 import { OASession, Question } from '@/types/oa';
 import DifficultyBadge from '@/components/DifficultyBadge';
 import CodeEditor from '@/components/CodeEditor';
+import { getSessionLocal } from '@/lib/sessionStore';
 import confetti from 'canvas-confetti';
 import {
   Trophy,
-  Award,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Sparkles,
   ArrowRight,
   Code,
   FileCode,
@@ -41,7 +37,20 @@ export default function OAResultsPage({
       try {
         const res = await fetch(`/api/oa/${sessionId}`);
         if (res.ok) {
-          const sess = await res.json();
+          let sess = await res.json();
+
+          // Check if local storage has submissions saved right before navigation
+          if (!sess.submissions || Object.keys(sess.submissions).length === 0) {
+            const localSess = getSessionLocal(sessionId, sess.userEmail || authSession?.user?.email || undefined);
+            if (localSess?.submissions && Object.keys(localSess.submissions).length > 0) {
+              sess = {
+                ...sess,
+                submissions: localSess.submissions,
+                totalScore: localSess.totalScore || sess.totalScore,
+              };
+            }
+          }
+
           setSession(sess);
 
           if (sess.roomId) {
@@ -56,11 +65,13 @@ export default function OAResultsPage({
 
           const pct = (sess.totalScore / (sess.maxScore || 1)) * 100;
           if (pct >= 50) {
-            confetti({
-              particleCount: 80,
-              spread: 60,
-              origin: { y: 0.6 },
-            });
+            setTimeout(() => {
+              confetti({
+                particleCount: 80,
+                spread: 60,
+                origin: { y: 0.6 },
+              });
+            }, 300);
           }
         }
       } catch (e) {
@@ -71,12 +82,13 @@ export default function OAResultsPage({
     }
 
     loadSession();
-  }, [sessionId]);
+  }, [sessionId, authSession?.user?.email]);
 
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-zinc-950 text-white font-mono text-sm">
-        Loading Performance Summary...
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-zinc-950 text-white font-mono text-xs space-y-3">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+        <span className="text-zinc-400">Loading Performance Summary...</span>
       </div>
     );
   }

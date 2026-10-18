@@ -167,12 +167,20 @@ export default function TakeOAPage({
   const isFinishedRef = useRef(false);
   const [isFinished, setIsFinished] = useState(false);
   const [duelRoom, setDuelRoom] = useState<any>(null);
+  const duelIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [matchConcluding, setMatchConcluding] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    isWinner: boolean;
+  }>({ show: false, title: "", message: "", isWinner: false });
 
   const myEmail = (session?.userEmail || authSession?.user?.email || "").toLowerCase();
 
   useEffect(() => {
     if (!session?.roomId || isFinishedRef.current) return;
     const fetchDuelRoom = async () => {
+      if (isFinishedRef.current) return;
       try {
         const res = await fetch(`/api/room/${session.roomId}`);
         if (res.ok) {
@@ -186,31 +194,51 @@ export default function TakeOAPage({
               // Opponent won! Conclude match and redirect to results with DEFEAT
               isFinishedRef.current = true;
               setIsFinished(true);
-              if (typeof document !== "undefined" && document.fullscreenElement) {
-                try {
-                  await document.exitFullscreen();
-                } catch {}
+
+              if (duelIntervalRef.current) {
+                clearInterval(duelIntervalRef.current);
+                duelIntervalRef.current = null;
               }
+
+              setMatchConcluding({
+                show: true,
+                title: "⚔️ MATCH CONCLUDED",
+                message: "Your opponent submitted the accepted solution first. Finalizing duel results...",
+                isWinner: false,
+              });
+
+              // Complete session in background
               await fetch(`/api/oa/${session.id}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   finishAssessment: true,
-                  sessionData: {
-                    ...session,
-                    status: "completed",
-                  },
                 }),
               }).catch(() => {});
-              router.push(`/oa/results/${session.id}`);
+
+              if (typeof document !== "undefined" && document.fullscreenElement) {
+                try {
+                  await document.exitFullscreen();
+                } catch {}
+              }
+
+              setTimeout(() => {
+                router.push(`/oa/results/${session.id}`);
+              }, 400);
             }
           }
         }
       } catch {}
     };
+
     fetchDuelRoom();
-    const interval = setInterval(fetchDuelRoom, 1500);
-    return () => clearInterval(interval);
+    duelIntervalRef.current = setInterval(fetchDuelRoom, 1500);
+    return () => {
+      if (duelIntervalRef.current) {
+        clearInterval(duelIntervalRef.current);
+        duelIntervalRef.current = null;
+      }
+    };
   }, [session?.roomId, session?.id, myEmail, router]);
 
   const enterFullscreen = async () => {
@@ -247,43 +275,57 @@ export default function TakeOAPage({
     isFinishedRef.current = true;
     setIsFinished(true);
 
-    if (typeof document !== "undefined" && document.fullscreenElement) {
-      try {
-        await document.exitFullscreen();
-      } catch {}
+    if (duelIntervalRef.current) {
+      clearInterval(duelIntervalRef.current);
+      duelIntervalRef.current = null;
     }
+
+    setMatchConcluding({
+      show: true,
+      title: isForfeit ? "⚔️ DUEL FORFEITED" : "COMPLETING ASSESSMENT",
+      message: isForfeit
+        ? "Exited fullscreen or test session. Recording forfeit and finalizing results..."
+        : "Saving your submissions and calculating your final performance report...",
+      isWinner: false,
+    });
 
     try {
       if (!session?.id) return;
 
-      // Notify duel room FIRST of match completion or forfeit
+      const finishPromises: Promise<any>[] = [];
+
+      // Notify duel room of match completion or forfeit
       if (session?.roomId) {
-        await fetch(`/api/room/${session.roomId}`, {
+        finishPromises.push(
+          fetch(`/api/room/${session.roomId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: isForfeit ? "forfeit_duel" : "update_progress",
+              isFinished: true,
+              totalScore: session.totalScore,
+            }),
+          }).catch(() => {})
+        );
+      }
+
+      finishPromises.push(
+        fetch(`/api/oa/${session.id}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: isForfeit ? "forfeit_duel" : "update_progress",
-            isFinished: true,
-            totalScore: session.totalScore,
+            finishAssessment: true,
+            sessionData: session,
           }),
-        }).catch(() => {});
-      }
+        }).then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (data?.session) {
+            saveSessionLocal(data.session);
+          }
+        }).catch(() => {})
+      );
 
-      const payload = {
-        finishAssessment: true,
-        sessionData: session,
-      };
-
-      const res = await fetch(`/api/oa/${session.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (data?.session) {
-        saveSessionLocal(data.session);
-      }
+      await Promise.allSettled(finishPromises);
 
       // Purge temporary session drafts from localStorage
       try {
@@ -297,11 +339,21 @@ export default function TakeOAPage({
         }
       } catch {}
 
-      router.push(`/oa/results/${session.id}`);
+      if (typeof document !== "undefined" && document.fullscreenElement) {
+        try {
+          await document.exitFullscreen();
+        } catch {}
+      }
+
+      setTimeout(() => {
+        router.push(`/oa/results/${session.id}`);
+      }, 350);
     } catch (error) {
       console.error("Error completing assessment", error);
       if (session?.id) {
-        router.push(`/oa/results/${session.id}`);
+        setTimeout(() => {
+          router.push(`/oa/results/${session.id}`);
+        }, 350);
       }
     }
   }, [router, session]);
@@ -373,6 +425,7 @@ export default function TakeOAPage({
     }, 0);
 
     const handleFullscreenChange = () => {
+      if (isFinishedRef.current) return;
       const isFS =
         typeof document !== "undefined" && !!document.fullscreenElement;
       setIsFullscreen(isFS);
@@ -387,6 +440,7 @@ export default function TakeOAPage({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isFinishedRef.current) return;
       if (e.key === "Escape" && !isFinishedRef.current) {
         console.warn("User pressed Escape. Forfeiting duel / ending assessment.");
         handleFinishAssessment(true);
@@ -394,6 +448,7 @@ export default function TakeOAPage({
     };
 
     const handleVisibilityChange = () => {
+      if (isFinishedRef.current) return;
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden" &&
@@ -718,40 +773,68 @@ export default function TakeOAPage({
             isFinishedRef.current = true;
             setIsFinished(true);
 
+            if (duelIntervalRef.current) {
+              clearInterval(duelIntervalRef.current);
+              duelIntervalRef.current = null;
+            }
+
+            // Immediately display high-performance Victory overlay
+            setMatchConcluding({
+              show: true,
+              title: "⚔️ VICTORY! Solution Accepted",
+              message: "Congratulations! You submitted first. Saving your score and victory record...",
+              isWinner: true,
+            });
+
+            // The updated session returned by submit_question contains the newly submitted code and score
+            const freshSession: OASession = data.session || {
+              ...session,
+              submissions: {
+                ...(session.submissions || {}),
+                [qid]: data.submission,
+              },
+              totalScore: (session.totalScore || 0) + (currentQuestion.points || 100),
+            };
+
+            saveSessionLocal(freshSession);
+
+            // Parallelize victory calls
+            await Promise.allSettled([
+              fetch(`/api/room/${session.roomId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "finish_duel",
+                  solutionAccepted: true,
+                  isFinished: true,
+                  problemsSolved: 1,
+                  totalScore: freshSession.totalScore,
+                }),
+              }),
+              fetch(`/api/oa/${session.id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  finishAssessment: true,
+                  sessionData: {
+                    ...freshSession,
+                    status: "completed",
+                  },
+                }),
+              }),
+            ]);
+
+            // Exit fullscreen cleanly while overlay is displayed
             if (typeof document !== "undefined" && document.fullscreenElement) {
               try {
                 await document.exitFullscreen();
               } catch {}
             }
 
-            // Award victory on room API
-            await fetch(`/api/room/${session.roomId}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "finish_duel",
-                solutionAccepted: true,
-                isFinished: true,
-                problemsSolved: 1,
-                totalScore: (session.totalScore || 0) + (currentQuestion.points || 100),
-              }),
-            }).catch(() => {});
-
-            // Complete session
-            await fetch(`/api/oa/${session.id}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                finishAssessment: true,
-                sessionData: {
-                  ...session,
-                  status: "completed",
-                },
-              }),
-            }).catch(() => {});
-
-            // Redirect winner directly to results page
-            router.push(`/oa/results/${session.id}`);
+            // Small delay to allow browser native fullscreen exit animation to settle before route unmount
+            setTimeout(() => {
+              router.push(`/oa/results/${session.id}`);
+            }, 350);
             return;
           }
         }
@@ -1817,6 +1900,41 @@ export default function TakeOAPage({
             )}
 
             {fsError && <p className="text-xs text-rose-400">{fsError}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Smooth Match Concluding / Victory Transition Overlay */}
+      {matchConcluding.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#1e1e1e] p-8 text-center space-y-5 shadow-2xl">
+            <div className={`mx-auto h-16 w-16 rounded-2xl flex items-center justify-center border shadow-xl ${
+              matchConcluding.isWinner
+                ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
+                : "bg-amber-500/20 border-amber-500/50 text-amber-400"
+            }`}>
+              {matchConcluding.isWinner ? (
+                <Swords className="h-8 w-8 animate-pulse text-emerald-400" />
+              ) : (
+                <RefreshCw className="h-8 w-8 animate-spin text-amber-400" />
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h2 className={`text-xl font-bold font-mono tracking-tight ${
+                matchConcluding.isWinner ? "text-emerald-400" : "text-white"
+              }`}>
+                {matchConcluding.title}
+              </h2>
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-sm mx-auto">
+                {matchConcluding.message}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 pt-2 text-xs font-mono text-zinc-400">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-400" />
+              <span>Redirecting to performance summary...</span>
+            </div>
           </div>
         </div>
       )}

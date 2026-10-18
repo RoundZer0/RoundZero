@@ -136,26 +136,31 @@ export async function saveOASessionToDB(session: OASession, userEmail?: string) 
     const conn = await connectToDatabase();
     if (!conn) return null;
 
-    const normEmail = userEmail ? normalizeEmail(userEmail) : '';
+    const normEmail = userEmail ? normalizeEmail(userEmail) : (session.userEmail ? normalizeEmail(session.userEmail) : '');
+
+    const updateFields: any = {
+      sessionId: session.id,
+      roomId: session.roomId,
+      contestId: session.contestId,
+      title: session.title,
+      timeLimitMinutes: session.timeLimitMinutes,
+      config: session.config,
+      questions: session.questions,
+      submissions: session.submissions,
+      totalScore: session.totalScore,
+      maxScore: session.maxScore,
+      status: session.status,
+      startedAt: new Date(session.startedAt),
+      completedAt: session.completedAt ? new Date(session.completedAt) : undefined,
+    };
+
+    if (normEmail) {
+      updateFields.userEmail = normEmail;
+    }
 
     const doc = await OASessionModel.findOneAndUpdate(
       { sessionId: session.id },
-      {
-        sessionId: session.id,
-        userEmail: normEmail || session.userEmail,
-        roomId: session.roomId,
-        contestId: session.contestId,
-        title: session.title,
-        timeLimitMinutes: session.timeLimitMinutes,
-        config: session.config,
-        questions: session.questions,
-        submissions: session.submissions,
-        totalScore: session.totalScore,
-        maxScore: session.maxScore,
-        status: session.status,
-        startedAt: new Date(session.startedAt),
-        completedAt: session.completedAt ? new Date(session.completedAt) : undefined,
-      },
+      { $set: updateFields },
       { upsert: true, new: true }
     );
     return doc;
@@ -176,6 +181,7 @@ export async function getOASessionFromDB(sessionId: string) {
     return {
       id: doc.sessionId,
       title: doc.title,
+      userEmail: doc.userEmail,
       roomId: doc.roomId,
       contestId: doc.contestId,
       createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
@@ -209,6 +215,9 @@ export async function getUserOASessionsFromDB(email: string): Promise<OASession[
     return docs.map((doc) => ({
       id: doc.sessionId,
       title: doc.title,
+      userEmail: doc.userEmail,
+      roomId: doc.roomId,
+      contestId: doc.contestId,
       createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
       startedAt: doc.startedAt ? doc.startedAt.toISOString() : new Date().toISOString(),
       completedAt: doc.completedAt ? doc.completedAt.toISOString() : undefined,

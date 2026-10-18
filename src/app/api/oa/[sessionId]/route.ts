@@ -133,6 +133,7 @@ export async function POST(
     const authSession = await getServerSession(authOptions);
     const userEmail = normalizeEmail(authSession?.user?.email || session.userEmail);
     if (userEmail) {
+      session.userEmail = userEmail;
       await saveOASessionToDB(session, userEmail);
 
       // If this OA session is a POTD and all test cases passed, record POTD solve and reward
@@ -202,6 +203,17 @@ export async function POST(
   }
 
   if (finishAssessment) {
+    // 1. Fetch latest session from MongoDB to merge any previously saved submissions
+    const dbSession = await getOASessionFromDB(sessionId);
+
+    // 2. Defensively merge submissions across DB, memory session, and incoming payload
+    const mergedSubmissions = {
+      ...(dbSession?.submissions || {}),
+      ...(session.submissions || {}),
+      ...(body.sessionData?.submissions || {}),
+    };
+
+    session.submissions = mergedSubmissions;
     session.status = 'completed';
     session.completedAt = new Date().toISOString();
     
@@ -211,12 +223,18 @@ export async function POST(
       0
     );
 
+    const authSession = await getServerSession(authOptions);
+    const userEmail = normalizeEmail(authSession?.user?.email || session.userEmail || dbSession?.userEmail);
+    if (userEmail) {
+      session.userEmail = userEmail;
+    }
+
     saveSessionServer(session);
 
-    const authSession = await getServerSession(authOptions);
-    const userEmail = normalizeEmail(authSession?.user?.email || session.userEmail);
     if (userEmail) {
       await saveOASessionToDB(session, userEmail);
+    } else {
+      await saveOASessionToDB(session);
     }
 
     const clientSafeQuestions = session.questions.map((q) => ({
