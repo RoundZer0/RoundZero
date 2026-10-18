@@ -28,7 +28,6 @@ import { consumeOACredit, getUserCredits, fetchUserCreditsFromDB } from '@/lib/u
 import RazorpayPayButton from './RazorpayPayButton';
 import { useSession } from 'next-auth/react';
 import { CreditCard, FilePlus, AlertCircle, Sparkles } from 'lucide-react';
-import { UserPlus, UsersRound } from 'lucide-react';
 
 export default function OACustomizer() {
   const router = useRouter();
@@ -73,10 +72,6 @@ export default function OACustomizer() {
 
   // Creating Session State
   const [isCreating, setIsCreating] = useState(false);
-  const [roomTitle, setRoomTitle] = useState('Competitive OA Room');
-  const [inviteCode, setInviteCode] = useState('');
-  const [roomAction, setRoomAction] = useState<'create' | 'join' | null>(null);
-  const [roomError, setRoomError] = useState('');
 
   // Fetch Stats on mount
   useEffect(() => {
@@ -241,55 +236,6 @@ export default function OACustomizer() {
     }
   };
 
-  const handleCreateRoom = async () => {
-    setRoomAction('create');
-    setRoomError('');
-    try {
-      const res = await fetch('/api/room/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: roomTitle.trim() || 'Competitive OA Room' }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRoomError(data.error || 'Failed to create room.');
-        return;
-      }
-      router.push(`/room/${data.roomId}`);
-    } catch {
-      setRoomError('Could not create the room. Please try again.');
-    } finally {
-      setRoomAction(null);
-    }
-  };
-
-  const handleJoinRoom = async () => {
-    const code = inviteCode.trim();
-    if (!code) {
-      setRoomError('Enter the invite code shared by the room creator.');
-      return;
-    }
-
-    setRoomAction('join');
-    setRoomError('');
-    try {
-      const res = await fetch('/api/room/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inviteCode: code }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setRoomError(data.error || 'Failed to join room.');
-        return;
-      }
-      router.push(`/room/${data.roomId}`);
-    } catch {
-      setRoomError('Could not join the room. Please try again.');
-    } finally {
-      setRoomAction(null);
-    }
-  };
 
   const filteredTagCounts =
     stats?.tagCounts.filter((tc) =>
@@ -298,75 +244,6 @@ export default function OACustomizer() {
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-8 space-y-8">
-      {/* Collaborative room entry point */}
-      <section className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-5 sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-md">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-400">
-              <UsersRound className="h-4 w-4" />
-              Collaborative rooms
-            </div>
-            <h2 className="text-lg font-bold text-white">Practice with your team</h2>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-400">
-              Create a shared assessment room or join one with an invite code. Room creators can add participants by email.
-            </p>
-          </div>
-
-          <div className="grid w-full gap-3 sm:grid-cols-2 lg:max-w-2xl">
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
-              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                New room
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={roomTitle}
-                  onChange={(event) => setRoomTitle(event.target.value)}
-                  placeholder="Room name"
-                  className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-xs text-white placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleCreateRoom}
-                  disabled={roomAction !== null}
-                  className="flex items-center gap-1.5 rounded-md bg-amber-500 px-3 py-2 text-xs font-bold text-zinc-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  {roomAction === 'create' ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
-              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                Join a room
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') handleJoinRoom();
-                  }}
-                  placeholder="Invite code"
-                  className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-500 focus:border-amber-500 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleJoinRoom}
-                  disabled={roomAction !== null}
-                  className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-bold text-white transition hover:border-amber-500/50 hover:text-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <ArrowRight className="h-3.5 w-3.5" />
-                  {roomAction === 'join' ? 'Joining...' : 'Join'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        {roomError && <p className="mt-3 text-xs text-rose-400">{roomError}</p>}
-      </section>
 
       {/* Professional Header */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 sm:p-8 space-y-3">
