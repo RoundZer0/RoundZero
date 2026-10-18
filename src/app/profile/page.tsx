@@ -26,6 +26,7 @@ import {
   User as UserIcon,
 } from 'lucide-react';
 import { getRatingTier, RatingBadgeInfo } from '@/lib/contestRating';
+import SubmissionHeatmap from '@/components/SubmissionHeatmap';
 
 interface ProfileData {
   user: {
@@ -52,6 +53,13 @@ interface ProfileData {
     hardSolved: number;
     totalOAs: number;
     avgOAScore: number;
+  };
+  heatmap?: {
+    calendar: Record<string, number>;
+    totalSubmissions: number;
+    activeDays: number;
+    longestStreak: number;
+    currentStreak: number;
   };
   contestHistory: Array<{
     contestId: string;
@@ -354,6 +362,15 @@ function ProfileContent() {
             </div>
           </div>
         </div>
+
+        {/* 365-Day Activity & Solves Heatmap */}
+        <SubmissionHeatmap
+          calendar={profile.heatmap?.calendar}
+          totalSubmissions={profile.heatmap?.totalSubmissions}
+          activeDays={profile.heatmap?.activeDays}
+          longestStreak={profile.heatmap?.longestStreak}
+          currentStreak={profile.heatmap?.currentStreak}
+        />
 
         {/* Deep Dive Tabs */}
         <div className="space-y-4">

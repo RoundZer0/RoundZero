@@ -109,6 +109,126 @@ export async function GET(request: NextRequest) {
     const totalSolved = uniqueSolvedIds.size;
     const tierMeta = getRatingTier(user.contestRating || 1500);
 
+    // 4. Aggregate 365-day submission calendar
+    const oneYearAgo = new Date();
+    oneYearAgo.setDate(oneYearAgo.getDate() - 380);
+    oneYearAgo.setHours(0, 0, 0, 0);
+
+    const now = new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayYear = today.getFullYear();
+    const todayMonth = String(today.getMonth() + 1).padStart(2, '0');
+    const todayDay = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${todayYear}-${todayMonth}-${todayDay}`;
+
+    const submissionCalendar: Record<string, number> = {};
+
+    // A. POTD submissions in past 380 days (never future dates)
+    const allUserPotdSubs = await POTDSubmissionModel.find({
+      userEmail: normEmail,
+      createdAt: { $gte: oneYearAgo, $lte: now },
+    }).lean();
+
+    for (const sub of allUserPotdSubs as any[]) {
+      let dStr = sub.dateStr;
+      if (!dStr && sub.createdAt) {
+        const subDate = new Date(sub.createdAt);
+        const y = subDate.getFullYear();
+        const m = String(subDate.getMonth() + 1).padStart(2, '0');
+        const d = String(subDate.getDate()).padStart(2, '0');
+        dStr = `${y}-${m}-${d}`;
+      }
+      if (dStr && dStr <= todayStr) {
+        submissionCalendar[dStr] = (submissionCalendar[dStr] || 0) + 1;
+      }
+    }
+
+    // B. OA Sessions in past 380 days (never future dates)
+    const allUserOAs = await OASessionModel.find({
+      userEmail: normEmail,
+      createdAt: { $gte: oneYearAgo, $lte: now },
+    }).lean();
+
+    for (const oa of allUserOAs as any[]) {
+      if (oa.createdAt) {
+        const oaDateObj = new Date(oa.createdAt);
+        const y = oaDateObj.getFullYear();
+        const m = String(oaDateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(oaDateObj.getDate()).padStart(2, '0');
+        const oaDate = `${y}-${m}-${d}`;
+        if (oaDate <= todayStr) {
+          let count = 0;
+          if (oa.submissions) {
+            for (const s of Object.values(oa.submissions as Record<string, any>)) {
+              if (s && s.status === 'submitted') count++;
+            }
+          }
+          submissionCalendar[oaDate] = (submissionCalendar[oaDate] || 0) + Math.max(1, count);
+        }
+      }
+    }
+
+    // C. Contest submissions in past 380 days (strictly past/ended contests with actual solved problems)
+    for (const c of contests) {
+      const cStartTime = new Date(c.startTime);
+      if (cStartTime >= oneYearAgo && cStartTime <= now) {
+        const p = c.participants?.find((part: any) => part.email.toLowerCase() === normEmail);
+        if (p) {
+          const y = cStartTime.getFullYear();
+          const m = String(cStartTime.getMonth() + 1).padStart(2, '0');
+          const d = String(cStartTime.getDate()).padStart(2, '0');
+          const cDate = `${y}-${m}-${d}`;
+          if (cDate <= todayStr) {
+            const solved = p.problems ? p.problems.filter((pr: any) => pr.solved).length : 0;
+            if (solved > 0) {
+              submissionCalendar[cDate] = (submissionCalendar[cDate] || 0) + solved;
+            }
+          }
+        }
+      }
+    }
+
+    // Compute maxStreak and currentStreak
+    let maxStreak = 0;
+    let tempStreak = 0;
+
+    for (let i = 365; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const k = d.toISOString().split('T')[0];
+      if (submissionCalendar[k] && submissionCalendar[k] > 0) {
+        tempStreak++;
+        if (tempStreak > maxStreak) maxStreak = tempStreak;
+      } else {
+        tempStreak = 0;
+      }
+    }
+
+    const todayKey = today.toISOString().split('T')[0];
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().split('T')[0];
+
+    let currentStreakCount = 0;
+    let checkDate = new Date(today);
+    if (!submissionCalendar[todayKey] && submissionCalendar[yesterdayKey]) {
+      checkDate = yesterday;
+    }
+
+    while (true) {
+      const key = checkDate.toISOString().split('T')[0];
+      if (submissionCalendar[key] && submissionCalendar[key] > 0) {
+        currentStreakCount++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+
+    const totalSubmissions = Object.values(submissionCalendar).reduce((a, b) => a + b, 0);
+    const activeDays = Object.keys(submissionCalendar).length;
+
     return NextResponse.json({
       user: {
         email: user.email,
@@ -140,6 +260,13 @@ export async function GET(request: NextRequest) {
                   oaSessions.length
               )
             : 0,
+      },
+      heatmap: {
+        calendar: submissionCalendar,
+        totalSubmissions,
+        activeDays,
+        longestStreak: Math.max(maxStreak, user.potdStreak || 0),
+        currentStreak: Math.max(currentStreakCount, user.potdStreak || 0),
       },
       contestHistory,
       oaHistory,
