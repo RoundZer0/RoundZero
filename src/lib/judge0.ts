@@ -224,6 +224,7 @@ def run_tests():
     raw_cases = ${testCasesJson}
     results = []
     all_passed = True
+    failed_count = 0
 
     for idx, tc in enumerate(raw_cases):
         case_id = idx + 1
@@ -282,25 +283,54 @@ def run_tests():
                 return False
 
             passed = are_equiv(actual_val, expected_val, exp_str)
+            act_str = "[]" if actual_val is None else str(actual_val)
             if not passed:
                 all_passed = False
+                failed_count += 1
 
             results.append({
                 "id": case_id,
-                "input": inp_str,
-                "expected": exp_str,
-                "actual": "[]" if actual_val is None else str(actual_val),
+                "input": inp_str[:1200] if len(inp_str) > 1200 else inp_str,
+                "expected": exp_str[:1200] if len(exp_str) > 1200 else exp_str,
+                "actual": act_str[:1200] if len(act_str) > 1200 else act_str,
                 "passed": passed
             })
+
+            # Fail-fast on large test suites: if code already failed 3 cases, don't waste time running remaining cases
+            if len(raw_cases) > 5 and failed_count >= 3:
+                for rem in range(idx + 1, len(raw_cases)):
+                    results.append({
+                        "id": rem + 1,
+                        "input": "[Hidden Test Case]",
+                        "expected": "[Hidden Output]",
+                        "actual": "[Skipped after earlier failures]",
+                        "passed": False
+                    })
+                break
+
         except Exception as e:
             all_passed = False
+            failed_count += 1
+            err_msg = f"{type(e).__name__}: {str(e)}"
             results.append({
                 "id": case_id,
-                "input": inp_str,
-                "expected": exp_str,
-                "actual": f"{type(e).__name__}: {str(e)}",
+                "input": inp_str[:1200] if len(inp_str) > 1200 else inp_str,
+                "expected": exp_str[:1200] if len(exp_str) > 1200 else exp_str,
+                "actual": err_msg[:1200] if len(err_msg) > 1200 else err_msg,
                 "passed": False
             })
+
+            # Fail-fast on fatal runtime crash (e.g. RecursionError)
+            if len(raw_cases) > 5 and failed_count >= 2:
+                for rem in range(idx + 1, len(raw_cases)):
+                    results.append({
+                        "id": rem + 1,
+                        "input": "[Hidden Test Case]",
+                        "expected": "[Hidden Output]",
+                        "actual": "[Skipped after runtime error]",
+                        "passed": False
+                    })
+                break
 
     output_payload = {
         "status": "PASSED" if all_passed else "FAILED",
@@ -478,6 +508,7 @@ function runTests() {
     const rawCases = ${testCasesJson};
     const results = [];
     let allPassed = true;
+    let failedCount = 0;
 
     let solInstance = null;
     try {
@@ -563,24 +594,58 @@ function runTests() {
             }
 
             const passed = areEquiv(actualVal, expectedVal, expStr);
-            if (!passed) allPassed = false;
+            if (!passed) {
+                allPassed = false;
+                failedCount++;
+            }
 
+            const actStr = actualVal === null || actualVal === undefined ? '[]' : JSON.stringify(actualVal);
             results.push({
                 id: caseId,
-                input: inpStr,
-                expected: expStr,
-                actual: actualVal === null || actualVal === undefined ? '[]' : JSON.stringify(actualVal),
+                input: inpStr.length > 1200 ? inpStr.slice(0, 1200) + '...' : inpStr,
+                expected: expStr.length > 1200 ? expStr.slice(0, 1200) + '...' : expStr,
+                actual: actStr.length > 1200 ? actStr.slice(0, 1200) + '...' : actStr,
                 passed
             });
+
+            // Fail-fast on large test suites: if code already failed 3 cases, don't waste time running remaining cases
+            if (rawCases.length > 5 && failedCount >= 3) {
+                for (let rem = idx + 1; rem < rawCases.length; rem++) {
+                    results.push({
+                        id: rem + 1,
+                        input: '[Hidden Test Case]',
+                        expected: '[Hidden Output]',
+                        actual: '[Skipped after earlier failures]',
+                        passed: false
+                    });
+                }
+                break;
+            }
         } catch (err) {
             allPassed = false;
+            failedCount++;
+            const errMsg = (err.name || 'Error') + ': ' + (err.message || 'Execution error');
             results.push({
                 id: caseId,
-                input: inpStr,
-                expected: expStr,
-                actual: err.name + ': ' + err.message,
+                input: inpStr.length > 1200 ? inpStr.slice(0, 1200) + '...' : inpStr,
+                expected: expStr.length > 1200 ? expStr.slice(0, 1200) + '...' : expStr,
+                actual: errMsg.length > 1200 ? errMsg.slice(0, 1200) + '...' : errMsg,
                 passed: false
             });
+
+            // Fail-fast on runtime crash
+            if (rawCases.length > 5 && failedCount >= 2) {
+                for (let rem = idx + 1; rem < rawCases.length; rem++) {
+                    results.push({
+                        id: rem + 1,
+                        input: '[Hidden Test Case]',
+                        expected: '[Hidden Output]',
+                        actual: '[Skipped after runtime error]',
+                        passed: false
+                    });
+                }
+                break;
+            }
         }
     }
 

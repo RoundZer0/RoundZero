@@ -168,6 +168,8 @@ export default function TakeOAPage({
   // Execution & Submission feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRunningTests, setIsRunningTests] = useState(false);
+  const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null);
+  const lastExecutionTimeRef = useRef<number>(0);
   const [testOutput, setTestOutput] = useState<TestOutput | null>(null);
   const [selectedCaseTab, setSelectedCaseTab] = useState<number>(0);
 
@@ -669,6 +671,7 @@ export default function TakeOAPage({
 
     setActiveQuestionIndex(newIdx);
     setTestOutput(null);
+    setRateLimitWarning(null);
     setSelectedSampleTab(0);
     setSelectedCaseTab(0);
     setSelectedSubIdx(0);
@@ -676,8 +679,27 @@ export default function TakeOAPage({
     setBottomTab("testcase");
   };
 
+  const checkExecutionCooldown = (): boolean => {
+    const now = Date.now();
+    const elapsedSeconds = (now - lastExecutionTimeRef.current) / 1000;
+    if (elapsedSeconds < 5) {
+      const remaining = Math.max(1, Math.ceil(5 - elapsedSeconds));
+      setRateLimitWarning(
+        `You are submitting too frequently. Please wait ${remaining} second${remaining > 1 ? 's' : ''} before trying again.`
+      );
+      setBottomTab("result");
+      setConsoleOpen(true);
+      setMobileActiveView("console");
+      return false;
+    }
+    setRateLimitWarning(null);
+    lastExecutionTimeRef.current = now;
+    return true;
+  };
+
   // Run Sample Test Cases
   const handleRunSampleTests = async () => {
+    if (!checkExecutionCooldown()) return;
     setIsRunningTests(true);
     showResultTab();
 
@@ -697,6 +719,11 @@ export default function TakeOAPage({
       });
 
       const data = await res.json().catch(() => ({}));
+
+      if (res.status === 429) {
+        setRateLimitWarning(data.error || "You are submitting too frequently. Please wait a few seconds before trying again.");
+        return;
+      }
 
       if (!res.ok) {
         setTestOutput({
@@ -731,6 +758,7 @@ export default function TakeOAPage({
 
   // Submit Code for Current Question
   const handleSubmitQuestion = async () => {
+    if (!checkExecutionCooldown()) return;
     setIsSubmitting(true);
     showResultTab();
     try {
@@ -751,6 +779,11 @@ export default function TakeOAPage({
       });
 
       const data = await res.json().catch(() => ({}));
+
+      if (res.status === 429) {
+        setRateLimitWarning(data.error || "You are submitting too frequently. Please wait a few seconds before trying again.");
+        return;
+      }
 
       if (!res.ok) {
         setTestOutput({
@@ -1675,7 +1708,13 @@ export default function TakeOAPage({
                 ) : (
                   /* ---------------- Test Result tab ---------------- */
                   <>
-                    {isRunningTests || isSubmitting ? (
+                    {rateLimitWarning ? (
+                      <div className="h-full min-h-[140px] flex items-center justify-center p-6 text-center select-text">
+                        <p className="text-xs sm:text-[13px] text-[#f87171] font-sans tracking-wide">
+                          {rateLimitWarning}
+                        </p>
+                      </div>
+                    ) : isRunningTests || isSubmitting ? (
                       <div className="py-8 text-center text-xs text-zinc-400 flex items-center justify-center gap-2">
                         <RefreshCw className="h-4 w-4 animate-spin text-[#ffa116]" />
                         {isSubmitting

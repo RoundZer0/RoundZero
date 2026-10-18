@@ -134,6 +134,8 @@ export default function POTDPage() {
   const [isRunningTests, setIsRunningTests] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testOutput, setTestOutput] = useState<TestOutput | null>(null);
+  const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null);
+  const lastExecutionTimeRef = useRef<number>(0);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [bottomTab, setBottomTab] = useState<'testcase' | 'result'>('testcase');
   const [leftTab, setLeftTab] = useState<'description' | 'submission'>('description');
@@ -289,9 +291,27 @@ export default function POTDPage() {
     setConsoleOpen(true);
   };
 
+  const checkExecutionCooldown = (): boolean => {
+    const now = Date.now();
+    const elapsedSeconds = (now - lastExecutionTimeRef.current) / 1000;
+    if (elapsedSeconds < 5) {
+      const remaining = Math.max(1, Math.ceil(5 - elapsedSeconds));
+      setRateLimitWarning(
+        `You are submitting too frequently. Please wait ${remaining} second${remaining > 1 ? 's' : ''} before trying again.`
+      );
+      setBottomTab('result');
+      setConsoleOpen(true);
+      return false;
+    }
+    setRateLimitWarning(null);
+    lastExecutionTimeRef.current = now;
+    return true;
+  };
+
   // Run Sample Test Cases
   const handleRunSampleTests = async () => {
     if (!question) return;
+    if (!checkExecutionCooldown()) return;
     setIsRunningTests(true);
     showResultTab();
 
@@ -307,6 +327,11 @@ export default function POTDPage() {
       });
 
       const data = await res.json().catch(() => ({}));
+
+      if (res.status === 429) {
+        setRateLimitWarning(data.error || 'You are submitting too frequently. Please wait a few seconds before trying again.');
+        return;
+      }
 
       if (!res.ok) {
         setTestOutput({
@@ -338,6 +363,7 @@ export default function POTDPage() {
       alert('Please sign in via the top bar to record your solution, save your daily streak, and earn +1 OA credit!');
       return;
     }
+    if (!checkExecutionCooldown()) return;
 
     setIsSubmitting(true);
     showResultTab();
@@ -354,6 +380,11 @@ export default function POTDPage() {
       });
 
       const data = await res.json().catch(() => ({}));
+
+      if (res.status === 429) {
+        setRateLimitWarning(data.error || 'You are submitting too frequently. Please wait a few seconds before trying again.');
+        return;
+      }
 
       if (!res.ok) {
         setTestOutput({
@@ -969,12 +1000,27 @@ export default function POTDPage() {
                       </div>
                     </div>
                   )
-                ) : !testOutput ? (
-                  <div className="py-8 text-center text-xs text-zinc-500">
-                    Click &ldquo;Run&rdquo; to test your code against sample cases or &ldquo;Submit&rdquo; to evaluate against all test cases.
-                  </div>
                 ) : (
-                  <div className="space-y-4">
+                  <>
+                    {rateLimitWarning ? (
+                      <div className="h-full min-h-[140px] flex items-center justify-center p-6 text-center select-text">
+                        <p className="text-xs sm:text-[13px] text-[#f87171] font-sans tracking-wide">
+                          {rateLimitWarning}
+                        </p>
+                      </div>
+                    ) : isRunningTests || isSubmitting ? (
+                      <div className="py-8 text-center text-xs text-zinc-400 flex items-center justify-center gap-2">
+                        <RefreshCw className="h-4 w-4 animate-spin text-[#ffa116]" />
+                        {isSubmitting
+                          ? 'Judging your solution...'
+                          : 'Running sample test cases...'}
+                      </div>
+                    ) : !testOutput ? (
+                      <div className="py-8 text-center text-xs text-zinc-500">
+                        Click &ldquo;Run&rdquo; to test your code against sample cases or &ldquo;Submit&rdquo; to evaluate against all test cases.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
                     {/* Big LeetCode status line */}
                     <div>
                       <div className={`text-xl font-bold ${statusColor}`}>{statusLabel}</div>
@@ -1063,6 +1109,8 @@ export default function POTDPage() {
                     )}
                   </div>
                 )}
+              </>
+            )}
               </div>
             )}
           </section>

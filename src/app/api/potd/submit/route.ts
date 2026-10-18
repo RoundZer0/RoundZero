@@ -7,6 +7,8 @@ import { getQuestionByIdFromDB } from '@/lib/questions';
 import POTDSubmissionModel from '@/models/POTDSubmissionModel';
 import { normalizeEmail } from '@/lib/dbServices';
 
+const potdSubmitCooldownMap = new Map<string, number>();
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -15,6 +17,24 @@ export async function POST(request: NextRequest) {
         { error: 'Please sign in to submit your solution and record your streak.' },
         { status: 401 }
       );
+    }
+
+    const normEmail = normalizeEmail(session.user.email);
+    const now = Date.now();
+    const lastSubmit = potdSubmitCooldownMap.get(normEmail) || 0;
+    if (now - lastSubmit < 5000) {
+      const remaining = Math.max(1, Math.ceil((5000 - (now - lastSubmit)) / 1000));
+      return NextResponse.json(
+        { error: `You are submitting too frequently. Please wait ${remaining} second${remaining > 1 ? 's' : ''} before trying again.` },
+        { status: 429 }
+      );
+    }
+    potdSubmitCooldownMap.set(normEmail, now);
+
+    if (potdSubmitCooldownMap.size > 5000) {
+      for (const [k, v] of potdSubmitCooldownMap.entries()) {
+        if (now - v > 30000) potdSubmitCooldownMap.delete(k);
+      }
     }
 
     const { questionId, code, language = 'python' } = await request.json();
@@ -51,8 +71,6 @@ export async function POST(request: NextRequest) {
     const hiddenResults = testResults.slice(SAMPLE_LIMIT);
     const hiddenTotal = hiddenResults.length;
     const hiddenPassed = hiddenResults.filter((r) => r.passed).length;
-
-    const normEmail = normalizeEmail(session.user.email);
 
     if (allPassed) {
       const solveResult = await recordPOTDSolve(

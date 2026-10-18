@@ -41,6 +41,8 @@ export async function GET(
   });
 }
 
+const submitCooldownMap = new Map<string, number>();
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -70,6 +72,24 @@ export async function POST(
   }
 
   if (action === 'submit_question') {
+    const clientKey = `${session.id}_${questionId}`;
+    const now = Date.now();
+    const lastSubmit = submitCooldownMap.get(clientKey) || 0;
+    if (now - lastSubmit < 5000) {
+      const remaining = Math.max(1, Math.ceil((5000 - (now - lastSubmit)) / 1000));
+      return NextResponse.json(
+        { error: `You are submitting too frequently. Please wait ${remaining} second${remaining > 1 ? 's' : ''} before trying again.` },
+        { status: 429 }
+      );
+    }
+    submitCooldownMap.set(clientKey, now);
+
+    if (submitCooldownMap.size > 5000) {
+      for (const [k, v] of submitCooldownMap.entries()) {
+        if (now - v > 30000) submitCooldownMap.delete(k);
+      }
+    }
+
     const question = session.questions.find((q) => q.id === questionId);
     if (!question) {
       return NextResponse.json({ error: 'Question not found' }, { status: 400 });
