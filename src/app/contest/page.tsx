@@ -414,6 +414,15 @@ function ContestContent() {
                 </button>
               ) : (
                 <div className="flex flex-col items-center sm:items-end gap-2 w-full sm:w-auto">
+                  <Link
+                    href="/registercontest"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-[#ffa116] px-5 py-3 text-sm font-bold text-zinc-950 transition hover:bg-[#ffa116]/90 shadow-lg shadow-amber-500/20"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Register for Contest</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+
                   <button
                     type="button"
                     disabled
