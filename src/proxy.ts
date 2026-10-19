@@ -8,6 +8,15 @@ const authProxy = withAuth({
     authorized({ req, token }) {
       // The public root route renders LandingPage for signed-out visitors.
       if (req.nextUrl.pathname === "/") return true;
+
+      // Contest registration and its API are intentionally signed-in experiences.
+      if (
+        req.nextUrl.pathname === "/registercontest" ||
+        req.nextUrl.pathname === "/api/contest/register"
+      ) {
+        return !!token;
+      }
+
       return !!token;
     },
   },
