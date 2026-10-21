@@ -46,7 +46,7 @@ export default function PricingPage() {
   const plan = {
     id: 'unlimited_3months_99',
     name: '3 Months Unlimited Pro Pass',
-    price: 1,
+    price: 99,
     credits: 999,
     unlimited: true,
     duration: '3 Months Unlimited Access',
