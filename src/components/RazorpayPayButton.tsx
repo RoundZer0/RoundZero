@@ -46,7 +46,7 @@ export default function RazorpayPayButton({
     setIsProcessing(true);
 
     try {
-      // Step 1: Call backend to create Razorpay Order
+      //create razorpay order
       const orderRes = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

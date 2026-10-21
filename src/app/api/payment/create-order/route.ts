@@ -13,48 +13,31 @@ export async function POST(request: NextRequest) {
     const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
     const key_secret = process.env.RAZORPAY_KEY_SECRET;
 
-    let orderId = '';
-
-    if (key_id && key_secret) {
-      const instance = new Razorpay({
-        key_id,
-        key_secret,
-      });
-
-      const order = await instance.orders.create({
-        amount: Math.round(amount * 100), // Amount in paise
-        currency,
-        receipt: `receipt_${Date.now()}`,
-        notes: {
-          planId,
-          credits: credits ? credits.toString() : '999',
-        },
-      });
-
-      orderId = order.id;
-
-      await recordPaymentToDB({
-        orderId,
-        userEmail,
-        planId: planId || 'unlimited_3months_99',
-        amount,
-        credits: credits || 999,
-        status: 'created',
-      });
-
-      return NextResponse.json({
-        id: order.id,
-        currency: order.currency,
-        amount: order.amount,
-        keyId: key_id,
-        isTest: false,
-      });
+    if (!key_id || !key_secret) {
+      console.error('Razorpay credentials are not configured.');
+      return NextResponse.json(
+        { error: 'Payment is temporarily unavailable. Please try again later.' },
+        { status: 503 }
+      );
     }
 
-    orderId = `order_mock_${Math.random().toString(36).substring(2, 10)}${Date.now().toString(36)}`;
+    const instance = new Razorpay({
+      key_id,
+      key_secret,
+    });
+
+    const order = await instance.orders.create({
+      amount: Math.round(amount * 100), // Amount in paise
+      currency,
+      receipt: `receipt_${Date.now()}`,
+      notes: {
+        planId,
+        credits: credits ? credits.toString() : '999',
+      },
+    });
 
     await recordPaymentToDB({
-      orderId,
+      orderId: order.id,
       userEmail,
       planId: planId || 'unlimited_3months_99',
       amount,
@@ -63,12 +46,11 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      id: orderId,
-      currency: currency || 'INR',
-      amount: Math.round(amount * 100),
-      keyId: key_id || 'rzp_test_placeholder_key',
-      isTest: true,
-      notes: { planId, credits },
+      id: order.id,
+      currency: order.currency,
+      amount: order.amount,
+      keyId: key_id,
+      isTest: false,
     });
   } catch (error: any) {
     console.error('Error creating Razorpay order:', error);
