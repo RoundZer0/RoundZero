@@ -118,7 +118,7 @@ export default function OAResultsPage({
 
   // 1v1 Duel Victory / Defeat Determination
   const myEmail = (session.userEmail || authSession?.user?.email || '').toLowerCase();
-  const is1v1Duel = (room?.roomType === '1v1_duel' || !!room?.winnerEmail || !!session.roomId);
+  const is1v1Duel = room?.roomType === '1v1_duel' || (!!session.roomId && room?.roomType !== 'group_mock' && !!room?.winnerEmail);
   const isWinner = !!(room?.winnerEmail && myEmail && room.winnerEmail.toLowerCase() === myEmail);
   const isLoser = !!(room?.winnerEmail && myEmail && room.winnerEmail.toLowerCase() !== myEmail);
   const opponent = room?.members?.find((m: any) => m.email?.toLowerCase() !== myEmail);

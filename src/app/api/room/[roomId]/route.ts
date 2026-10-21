@@ -147,6 +147,7 @@ export async function POST(
   // Live progress telemetry or finish duel
   if (action === 'update_progress' || action === 'finish_duel') {
     const { problemsSolved, totalScore, currentQuestionIndex, isFinished, solutionAccepted } = body;
+    const isDuelRoom = (room.roomType || '1v1_duel') === '1v1_duel';
     const member = room.members.find(
       (m) => m.email.toLowerCase() === callerEmail
     );
@@ -156,9 +157,10 @@ export async function POST(
       if (typeof currentQuestionIndex === 'number') member.currentQuestionIndex = currentQuestionIndex;
       if (solutionAccepted) member.problemsSolved = Math.max(member.problemsSolved || 0, 1);
 
-      // In 1v1 duel, award victory properly:
+      // Only a 1v1 duel can be won by the first accepted solution. Group OAs
+      // keep the room active while each participant completes the question set.
       const hasSolvedProblem = Boolean(solutionAccepted || (member.problemsSolved && member.problemsSolved > 0) || (typeof totalScore === 'number' && totalScore > 0));
-      const shouldFinishDuel = Boolean(action === 'finish_duel' || isFinished || solutionAccepted);
+      const shouldFinishDuel = isDuelRoom && Boolean(action === 'finish_duel' || isFinished || solutionAccepted);
 
       if (shouldFinishDuel && (!room.winnerEmail || !room.winReason)) {
         const opponent = room.members.find(

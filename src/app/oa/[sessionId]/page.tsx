@@ -206,8 +206,9 @@ export default function TakeOAPage({
           const data = await res.json();
           setDuelRoom(data);
 
-          // In 1v1 duel, if match concluded and winner crowned:
-          if (data.status === "completed" && data.winnerEmail && !isFinishedRef.current) {
+          // Only a 1v1 duel can conclude with a winner. Group OAs remain active
+          // while participants complete the configured question set.
+          if (data.status === "completed" && data.winnerEmail && data.roomType !== "group_mock" && !isFinishedRef.current) {
             const isWinner = Boolean(myEmail && data.winnerEmail.toLowerCase() === myEmail);
             isFinishedRef.current = true;
             setIsFinished(true);
@@ -938,8 +939,17 @@ export default function TakeOAPage({
         if (passed) {
           playSound(session?.roomId ? "victory" : "success");
           setLeftTab("submission");
-          if (session?.roomId) {
-            // In 1v1 duel, solution accepted means immediate VICTORY!
+          const freshSession: OASession = data.session || {
+            ...session,
+            submissions: {
+              ...(session.submissions || {}),
+              [qid]: data.submission,
+            },
+            totalScore: (session.totalScore || 0) + (currentQuestion.points || 100),
+          };
+
+          if (session?.roomId && duelRoom?.roomType !== "group_mock") {
+            // In a 1v1 duel, solution accepted means immediate victory.
             isFinishedRef.current = true;
             setIsFinished(true);
 
@@ -955,16 +965,6 @@ export default function TakeOAPage({
               message: "Congratulations! You submitted first. Saving your score and victory record...",
               isWinner: true,
                 });
-
-            // The updated session returned by submit_question contains the newly submitted code and score
-            const freshSession: OASession = data.session || {
-              ...session,
-              submissions: {
-                ...(session.submissions || {}),
-                [qid]: data.submission,
-                  },
-              totalScore: (session.totalScore || 0) + (currentQuestion.points || 100),
-                };
 
             saveSessionLocal(freshSession);
 
@@ -1006,8 +1006,28 @@ export default function TakeOAPage({
               router.push(`/oa/results/${session.id}`);
                 }, 350);
             return;
+          } else if (session?.roomId) {
+            const solvedCount = Object.values(freshSession.submissions || {}).filter(
+              (submission: any) =>
+                submission?.status === "submitted" &&
+                Array.isArray(submission.testResults) &&
+                submission.testResults.length > 0 &&
+                submission.testResults.every((result: any) => result.passed)
+            ).length;
+
+            await fetch(`/api/room/${session.roomId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "update_progress",
+                problemsSolved: solvedCount,
+                totalScore: freshSession.totalScore,
+                currentQuestionIndex: Math.min(activeQuestionIndex + 1, session.questions.length - 1),
+                solutionAccepted: true,
+              }),
+            });
               }
-            } else {
+            } else if (!session?.roomId) {
           playSound("error");
             }
           }
