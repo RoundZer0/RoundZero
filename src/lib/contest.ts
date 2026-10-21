@@ -1,6 +1,7 @@
 import pool from '@/lib/db/postgres';
 import { connectToDatabase } from '@/lib/mongodb';
 import ContestModel, { IContest, IContestParticipant } from '@/models/ContestModel';
+import ContestRegistrationModel from '@/models/ContestRegistrationModel';
 import { Question } from '@/types/oa';
 import { mapRowToQuestion } from '@/lib/questions';
 import { OASession } from '@/types/oa';
@@ -429,6 +430,11 @@ export async function getContestLeaderboard(contestId: string) {
   const startTime = new Date(contest.startTime).getTime();
   const isQuestionsRevealed =
     contest.status === 'active' || contest.status === 'completed' || now >= startTime;
+  const isEnded = now > new Date(contest.endTime).getTime() || contest.status === 'completed';
+
+  const collegeRankings = isEnded
+    ? await getCollegeRankings(contestId, contest.participants)
+    : [];
 
   return {
     contestId: contest.contestId,
@@ -450,7 +456,76 @@ export async function getContestLeaderboard(contestId: string) {
     })),
     leaderboard: ranked,
     totalParticipants: ranked.length,
+    collegeRankings,
   };
+}
+
+interface CollegeRanking {
+  rank: number;
+  college: string;
+  registeredCount: number;
+  participantCount: number;
+  totalScore: number;
+  averageScore: number;
+}
+
+async function getCollegeRankings(
+  contestId: string,
+  participants: IContestParticipant[]
+): Promise<CollegeRanking[]> {
+  const registrations = await ContestRegistrationModel.find({ contestId })
+    .select({ email: 1, college: 1 })
+    .lean();
+  const colleges = new Map<
+    string,
+    { college: string; registeredCount: number; participantEmails: Set<string> }
+  >();
+
+  for (const registration of registrations) {
+    const college = registration.college.trim();
+    const collegeKey = college.toLocaleLowerCase();
+    const existing = colleges.get(collegeKey);
+    if (existing) {
+      existing.registeredCount += 1;
+      existing.participantEmails.add(normalizeEmail(registration.email));
+    } else {
+      colleges.set(collegeKey, {
+        college,
+        registeredCount: 1,
+        participantEmails: new Set([normalizeEmail(registration.email)]),
+      });
+    }
+  }
+
+  const participantByEmail = new Map(participants.map((participant) => [participant.email, participant]));
+  const ranked = Array.from(colleges.values()).map((college) => {
+    const collegeParticipants = Array.from(college.participantEmails)
+      .map((email) => participantByEmail.get(email))
+      .filter((participant): participant is IContestParticipant => Boolean(participant));
+    const totalScore = collegeParticipants.reduce((sum, participant) => sum + participant.score, 0);
+
+    return {
+      ...college,
+      participantCount: collegeParticipants.length,
+      totalScore,
+      averageScore: collegeParticipants.length > 0 ? totalScore / collegeParticipants.length : 0,
+    };
+  });
+
+  ranked.sort((a, b) => {
+    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+    if (b.participantCount !== a.participantCount) return b.participantCount - a.participantCount;
+    return a.college.localeCompare(b.college);
+  });
+
+  return ranked.map((college, index) => ({
+    rank: index + 1,
+    college: college.college,
+    registeredCount: college.registeredCount,
+    participantCount: college.participantCount,
+    totalScore: college.totalScore,
+    averageScore: Number(college.averageScore.toFixed(2)),
+  }));
 }
 
 /**

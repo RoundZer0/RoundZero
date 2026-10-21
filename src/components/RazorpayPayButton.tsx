@@ -46,7 +46,7 @@ export default function RazorpayPayButton({
     setIsProcessing(true);
 
     try {
-      // Step 1: Call backend to create Razorpay Order
+      //create razorpay order
       const orderRes = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,11 +68,10 @@ export default function RazorpayPayButton({
 
       const isUnlimited = planId.includes('unlimited') || planId === 'unlimited_3months_99';
 
-      // Step 2: Open Razorpay Checkout Modal
       if (typeof window !== 'undefined' && (window as any).Razorpay) {
         const options = {
           key: orderData.keyId || 'rzp_test_key',
-          amount: orderData.amount, // in paise
+          amount: orderData.amount, 
           currency: orderData.currency || 'INR',
           name: 'RoundZero',
           description: `Payment for ${planName}`,

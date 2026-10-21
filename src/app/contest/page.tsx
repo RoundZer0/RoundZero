@@ -66,6 +66,15 @@ interface LeaderboardEntry {
   startedAt: string | null;
 }
 
+interface CollegeRanking {
+  rank: number;
+  college: string;
+  registeredCount: number;
+  participantCount: number;
+  totalScore: number;
+  averageScore: number;
+}
+
 interface ContestData {
   contestId: string;
   contestNumber?: number;
@@ -111,13 +120,15 @@ function ContestContent() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
-  const [activeTab, setActiveTab] = useState<'leaderboard' | 'problems' | 'editorial' | 'rules' | 'archive'>('leaderboard');
+  const [activeTab, setActiveTab] = useState<'leaderboard' | 'college-rankings' | 'problems' | 'editorial' | 'rules' | 'archive'>('leaderboard');
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
     hours: number;
     minutes: number;
     seconds: number;
   }>({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [collegeRankings, setCollegeRankings] = useState<CollegeRanking[]>([]);
+  const [myCollege, setMyCollege] = useState<string | null>(null);
 
   // Sync with URL query parameter
   useEffect(() => {
@@ -141,6 +152,7 @@ function ContestContent() {
       if (data.leaderboard) {
         setLeaderboard(data.leaderboard);
       }
+      setCollegeRankings(data.collegeRankings || []);
       if (data.pastContests) {
         setPastContests(data.pastContests);
       }
@@ -160,6 +172,7 @@ function ContestContent() {
       if (data.leaderboard) {
         setLeaderboard(data.leaderboard);
       }
+      setCollegeRankings(data.collegeRankings || []);
     } catch (err) {
       console.error('Failed to load leaderboard:', err);
     }
@@ -180,6 +193,18 @@ function ContestContent() {
       return () => clearInterval(interval);
     }
   }, [contestData, fetchLeaderboard]);
+
+  useEffect(() => {
+    if (!session?.user?.email) {
+      setMyCollege(null);
+      return;
+    }
+
+    fetch('/api/contest/register')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setMyCollege(typeof data?.college === 'string' ? data.college : null))
+      .catch(() => setMyCollege(null));
+  }, [session?.user?.email]);
 
   // Countdown clock tick for upcoming or live contest
   useEffect(() => {
@@ -299,6 +324,7 @@ function ContestContent() {
               <ArrowLeft className="h-3.5 w-3.5" />
               <span>Back to Current Saturday Contest</span>
             </button>
+
           </div>
         )}
 
@@ -535,6 +561,24 @@ function ContestContent() {
               </span>
             </button>
 
+            {contestData?.isEnded && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('college-rankings')}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition ${
+                  activeTab === 'college-rankings'
+                    ? 'bg-[#282828] text-[#ffa116] border border-[#3e3e3e]'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                <span>College Rankings</span>
+                <span className="rounded-full bg-[#181818] border border-zinc-700 px-1.5 py-0.2 text-[10px] font-mono text-zinc-300">
+                  {collegeRankings.length}
+                </span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setActiveTab('problems')}
@@ -605,7 +649,72 @@ function ContestContent() {
               <span>Refresh</span>
             </button>
           )}
+
         </div>
+
+        {activeTab === 'college-rankings' && contestData?.isEnded && (
+          <div className="overflow-hidden rounded-xl border border-[#2e2e2e] bg-[#1a1a1a]">
+            <div className="border-b border-[#2e2e2e] bg-[#1f1f1f] px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-amber-400" />
+                <span className="text-xs font-bold text-white font-mono">Registered College Rankings</span>
+              </div>
+              <p className="mt-1 text-[11px] text-zinc-400">
+                Final standings are based on the combined score of contestants registered from each college.
+              </p>
+            </div>
+
+            {collegeRankings.length === 0 ? (
+              <div className="p-12 text-center text-xs text-zinc-400">No college registrations were found for this contest.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-[#2e2e2e] bg-[#222222] font-mono text-[11px] uppercase tracking-wider text-zinc-400">
+                    <tr>
+                      <th className="py-3.5 px-4 w-16 text-center">Rank</th>
+                      <th className="py-3.5 px-4">College</th>
+                      <th className="py-3.5 px-4 text-center">Contestants</th>
+                      <th className="py-3.5 px-4 text-center">Total Score</th>
+                      <th className="py-3.5 px-4 text-center">Average Score</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2a2a2a]">
+                    {collegeRankings.map((entry) => {
+                      const isMyCollege = myCollege?.trim().toLocaleLowerCase() === entry.college.toLocaleLowerCase();
+                      return (
+                        <tr
+                          key={entry.college}
+                          className={isMyCollege ? 'bg-amber-500/5 hover:bg-amber-500/10' : 'hover:bg-[#222222]/50'}
+                        >
+                          <td className="py-3 px-4 text-center font-bold font-mono">
+                            {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : `#${entry.rank}`}
+                          </td>
+                          <td className="py-3 px-4 font-semibold text-zinc-100">
+                            <span>{entry.college}</span>
+                            {isMyCollege && (
+                              <span className="ml-2 rounded bg-amber-500/20 border border-amber-500/40 px-1 py-0.2 text-[9px] font-bold text-amber-400">
+                                YOUR COLLEGE
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-zinc-300">
+                            {entry.participantCount} / {entry.registeredCount}
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono font-extrabold text-amber-400">
+                            {entry.totalScore}
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-zinc-300">
+                            {entry.averageScore}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tab 1: Contest-Wise Leaderboard */}
         {activeTab === 'leaderboard' && (

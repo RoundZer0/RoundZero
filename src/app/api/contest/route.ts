@@ -82,6 +82,7 @@ export async function GET(request: NextRequest) {
         isEnded,
       },
       leaderboard: leaderboardData?.leaderboard || [],
+      collegeRankings: leaderboardData?.collegeRankings || [],
       pastContests,
     });
   } catch (error) {

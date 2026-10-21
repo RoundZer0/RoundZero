@@ -1,8 +1,7 @@
 import { Pool } from 'pg';
 
 const connectionString =
-  process.env.POSTGRES_URL ||
-  'postgresql://neondb_owner:npg_LFNBVJC4M9mZ@ep-blue-dream-b4fmcwi9-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require';
+  process.env.POSTGRES_URL;
 
 let pool: Pool;
 

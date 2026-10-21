@@ -195,12 +195,12 @@ export default function Navbar() {
 
   return (
     <>
-      <AnnouncementBar
+      {/* <AnnouncementBar
         id="launch-day-special"
         message="We're live! Launch day special: unlimited OAs, today only."
         linkText="Claim your spot"
         href="/contest"
-      />
+      /> */}
       <header className="sticky top-0 z-40 w-full border-b border-[#2d2d2d] bg-[#141414]/95 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-[1600px] h-14 items-center justify-between px-3 sm:px-6 lg:px-8">
           {/* Left section: Favicon Logo + Navigation Links + Divider + Secondary Links + Pricing */}

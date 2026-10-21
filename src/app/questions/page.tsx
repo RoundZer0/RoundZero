@@ -191,7 +191,7 @@ export default function QuestionsPage() {
                 <th className="px-4 py-3">Difficulty</th>
                 <th className="px-4 py-3">Points</th>
                 <th className="px-4 py-3">Topics</th>
-                <th className="px-4 py-3 text-right">Action</th>
+               
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-sans">
@@ -230,15 +230,7 @@ export default function QuestionsPage() {
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => setActiveQuestion(q)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-1 text-xs text-zinc-300 hover:text-amber-400 hover:border-amber-500/50 transition"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Preview
-                      </button>
-                    </td>
+                    
                   </tr>
                 ))
               )}

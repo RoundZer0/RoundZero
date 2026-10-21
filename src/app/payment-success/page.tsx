@@ -10,7 +10,7 @@ function SuccessContent() {
 
   const orderId = searchParams.get('orderId') || 'ord_mock_123';
   const paymentId = searchParams.get('paymentId') || 'pay_mock_456';
-  const amount = searchParams.get('amount') || '49';
+  const amount = searchParams.get('amount') || '99';
   const credits = searchParams.get('credits') || '1';
   const planName = searchParams.get('planName') || 'Single Assessment Pass';
 
