@@ -97,11 +97,11 @@ export default function ContestRegisterPage() {
 
   // Prefill from session without overwriting what the user typed
   useEffect(() => {
-    if (!session?.user) return;
+    
     setForm((f) => ({
       ...f,
-      name: f.name || session.user?.name || "",
-      email: f.email || session.user?.email || "",
+      name: f.name || session?.user?.name || "",
+      email: f.email || session?.user?.email || "",
     }));
   }, [session]);
 
