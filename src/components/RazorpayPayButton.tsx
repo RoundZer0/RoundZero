@@ -68,11 +68,10 @@ export default function RazorpayPayButton({
 
       const isUnlimited = planId.includes('unlimited') || planId === 'unlimited_3months_99';
 
-      // Step 2: Open Razorpay Checkout Modal
       if (typeof window !== 'undefined' && (window as any).Razorpay) {
         const options = {
           key: orderData.keyId || 'rzp_test_key',
-          amount: orderData.amount, // in paise
+          amount: orderData.amount, 
           currency: orderData.currency || 'INR',
           name: 'RoundZero',
           description: `Payment for ${planName}`,
