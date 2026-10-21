@@ -1,13 +1,5 @@
 "use client";
-/**
- * Contest registration page. Suggested path: app/contest/register/page.tsx
- *
- * Registration is persisted by the authenticated registration API:
- *   POST /api/contest/register
- *   body:   { name, email, college, year, reminders, contest: "contest-1" }
- *   200 -> registered (or updated)
- *   other -> error, message shown to the user
- */
+
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/mongodb';
 import ContestRegistrationModel from '@/models/ContestRegistrationModel';
+import { getSaturdayContestWindow } from '@/lib/contest';
 
 const VALID_YEARS = new Set(['1st year', '2nd year', '3rd year', '4th year', 'Graduated']);
 
@@ -30,8 +31,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { name, email, college, year, reminders, contest } = body as Record<string, unknown>;
+    const currentContestId = getSaturdayContestWindow().contestId;
+    const contestId = contest === 'contest-1' ? currentContestId : contest;
     if (
-      contest !== 'contest-1' ||
+      contestId !== currentContestId ||
       !isValidText(name, 2, 100) ||
       !isValidEmail(email) ||
       !isValidText(college, 2, 200) ||
@@ -44,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     await connectToDatabase();
     await ContestRegistrationModel.findOneAndUpdate(
-      { contestId: contest, email: email.trim().toLowerCase() },
+      { contestId, email: email.trim().toLowerCase() },
       {
         $set: {
           name: name.trim(),
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
           reminders,
         },
         $setOnInsert: {
-          contestId: contest,
+          contestId,
           email: email.trim().toLowerCase(),
           registeredAt: new Date(),
         },
@@ -76,8 +79,15 @@ export async function GET() {
     }
 
     await connectToDatabase();
-    const registered = await ContestRegistrationModel.countDocuments({ contestId: 'contest-1' });
-    return NextResponse.json({ registered });
+    const contestId = getSaturdayContestWindow().contestId;
+    const registration = await ContestRegistrationModel.findOne({
+      contestId,
+      email: session.user.email.trim().toLowerCase(),
+    })
+      .select({ college: 1 })
+      .lean();
+    const registered = await ContestRegistrationModel.countDocuments({ contestId });
+    return NextResponse.json({ registered, college: registration?.college || null, contestId });
   } catch (error) {
     console.error('Error loading contest registration count:', error);
     return NextResponse.json({ message: 'Unable to load registration count.' }, { status: 500 });
