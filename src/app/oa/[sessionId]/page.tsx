@@ -35,6 +35,7 @@ import {
   Flame,
   Swords,
   Trophy,
+  LogOut,
 } from "lucide-react";
 import { playSound } from "@/lib/sound";
 
@@ -178,6 +179,8 @@ export default function TakeOAPage({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasEnteredFullscreen, setHasEnteredFullscreen] = useState(false);
   const hasEnteredFullscreenRef = useRef(false);
+  const [proctorWarnings, setProctorWarnings] = useState<number>(0);
+  const proctorWarningsRef = useRef<number>(0);
   const [fsSupported, setFsSupported] = useState(false);
   const [fsError, setFsError] = useState("");
   const isFinishedRef = useRef(false);
@@ -205,46 +208,88 @@ export default function TakeOAPage({
 
           // In 1v1 duel, if match concluded and winner crowned:
           if (data.status === "completed" && data.winnerEmail && !isFinishedRef.current) {
-            const isWinner = myEmail && data.winnerEmail.toLowerCase() === myEmail;
-            if (!isWinner) {
-              // Opponent won! Conclude match and redirect to results with DEFEAT
-              isFinishedRef.current = true;
-              setIsFinished(true);
+            const isWinner = Boolean(myEmail && data.winnerEmail.toLowerCase() === myEmail);
+            isFinishedRef.current = true;
+            setIsFinished(true);
 
-              if (duelIntervalRef.current) {
-                clearInterval(duelIntervalRef.current);
-                duelIntervalRef.current = null;
-              }
-
-              setMatchConcluding({
-                show: true,
-                title: "⚔️ MATCH CONCLUDED",
-                message: "Your opponent submitted the accepted solution first. Finalizing duel results...",
-                isWinner: false,
-              });
-
-              // Complete session in background
-              await fetch(`/api/oa/${session.id}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  finishAssessment: true,
-                }),
-              }).catch(() => {});
-
-              if (typeof document !== "undefined" && document.fullscreenElement) {
-                try {
-                  await document.exitFullscreen();
-                } catch {}
-              }
-
-              setTimeout(() => {
-                router.push(`/oa/results/${session.id}`);
-              }, 400);
+            if (duelIntervalRef.current) {
+              clearInterval(duelIntervalRef.current);
+              duelIntervalRef.current = null;
             }
+
+            const winReason = data.winReason;
+            const opp = data.members?.find((m: any) => m.email?.toLowerCase() !== myEmail);
+            const oppName = opp?.name || opp?.email || "Your opponent";
+
+            const userHasSolved = Object.values(session?.submissions || {}).some(
+              (s: any) =>
+                s &&
+                s.status === "submitted" &&
+                Array.isArray(s.testResults) &&
+                s.testResults.length > 0 &&
+                s.testResults.every((r: any) => r.passed)
+            ) || (session?.totalScore || 0) > 0;
+
+            const oppMember = data.members?.find((m: any) => m.email?.toLowerCase() !== myEmail);
+            const oppSolved = Boolean((oppMember?.problemsSolved && oppMember.problemsSolved > 0) || (oppMember?.totalScore && oppMember.totalScore > 0));
+
+            let bannerTitle = "⚔️ MATCH CONCLUDED";
+            let bannerMessage = "The duel match has concluded. Finalizing results...";
+
+            if (isWinner) {
+              if (winReason === "opponent_cheated") {
+                bannerTitle = "⚔️ VICTORY: OPPONENT DISQUALIFIED!";
+                bannerMessage = `${oppName} was disqualified for tab-switching / leaving fullscreen. You won the duel!`;
+              } else if (winReason === "opponent_forfeit" || !userHasSolved) {
+                bannerTitle = "⚔️ VICTORY: OPPONENT FORFEITED!";
+                bannerMessage = `${oppName} forfeited or left the match. You won the duel!`;
+              } else {
+                bannerTitle = "⚔️ VICTORY: YOU WON!";
+                bannerMessage = "Outstanding! You submitted an accepted solution first and won the duel!";
+              }
+              playSound("victory");
+            } else {
+              if (data.forfeitedBy && data.forfeitedBy.toLowerCase() === myEmail) {
+                bannerTitle = "⚔️ DUEL FORFEITED";
+                bannerMessage = `You forfeited or left fullscreen. The duel was awarded to ${oppName}.`;
+              } else if (!oppSolved) {
+                bannerTitle = "⚔️ DUEL FORFEITED";
+                bannerMessage = `Duel concluded. Victory was awarded to ${oppName}.`;
+              } else {
+                bannerTitle = "⚔️ DEFEAT";
+                bannerMessage = `${oppName} submitted the accepted solution first.`;
+              }
+              playSound("error");
+            }
+
+            setMatchConcluding({
+              show: true,
+              title: bannerTitle,
+              message: bannerMessage,
+              isWinner,
+            });
+
+            // Complete session in background
+            await fetch(`/api/oa/${session.id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                finishAssessment: true,
+              }),
+            }).catch(() => {});
+
+            if (typeof document !== "undefined" && document.fullscreenElement) {
+              try {
+                await document.exitFullscreen();
+              } catch {}
+            }
+
+            setTimeout(() => {
+              router.push(`/oa/results/${session.id}`);
+            }, 800);
           }
-        }
-      } catch {}
+            }
+          } catch {}
     };
 
     fetchDuelRoom();
@@ -253,7 +298,7 @@ export default function TakeOAPage({
       if (duelIntervalRef.current) {
         clearInterval(duelIntervalRef.current);
         duelIntervalRef.current = null;
-      }
+          }
     };
   }, [session?.roomId, session?.id, myEmail, router]);
 
@@ -269,10 +314,10 @@ export default function TakeOAPage({
         setIsFullscreen(true);
         setHasEnteredFullscreen(true);
         hasEnteredFullscreenRef.current = true;
-      } else {
+          } else {
         setFsSupported(false);
         setFsError("Fullscreen is not supported by this browser.");
-      }
+          }
     } catch (error) {
       setFsError(
         error instanceof Error
@@ -286,7 +331,7 @@ export default function TakeOAPage({
     }
   };
 
-  const handleFinishAssessment = useCallback(async (isForfeit = false) => {
+  const handleFinishAssessment = useCallback(async (isForfeit = false, forfeitReason = "user_quit") => {
     if (isFinishedRef.current) return;
     isFinishedRef.current = true;
     setIsFinished(true);
@@ -296,12 +341,28 @@ export default function TakeOAPage({
       duelIntervalRef.current = null;
     }
 
+    const isDuel = !!session?.roomId;
+    let concludingTitle = "COMPLETING ASSESSMENT";
+    let concludingMessage = "Saving your submissions and calculating your final performance report...";
+
+    if (isDuel) {
+      if (isForfeit) {
+        concludingTitle = "⚔️ DUEL FORFEITED";
+        concludingMessage = forfeitReason === "cheating"
+          ? "Tab switch / fullscreen exit detected. Forfeiting duel and awarding victory to your opponent..."
+          : "Exited duel session. Recording forfeit and finalizing results...";
+      }
+    } else {
+      concludingTitle = isForfeit ? "ASSESSMENT SUBMITTED" : "COMPLETING ASSESSMENT";
+      concludingMessage = isForfeit
+        ? "Exited assessment window. Saving your submissions and calculating results..."
+        : "Saving your submissions and calculating your final performance report...";
+    }
+
     setMatchConcluding({
       show: true,
-      title: isForfeit ? "⚔️ DUEL FORFEITED" : "COMPLETING ASSESSMENT",
-      message: isForfeit
-        ? "Exited fullscreen or test session. Recording forfeit and finalizing results..."
-        : "Saving your submissions and calculating your final performance report...",
+      title: concludingTitle,
+      message: concludingMessage,
       isWinner: false,
     });
 
@@ -318,12 +379,13 @@ export default function TakeOAPage({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: isForfeit ? "forfeit_duel" : "update_progress",
+              reason: forfeitReason,
               isFinished: true,
               totalScore: session.totalScore,
             }),
-          }).catch(() => {})
+              }).catch(() => {})
         );
-      }
+          }
 
       finishPromises.push(
         fetch(`/api/oa/${session.id}`, {
@@ -332,13 +394,26 @@ export default function TakeOAPage({
           body: JSON.stringify({
             finishAssessment: true,
             sessionData: session,
-          }),
-        }).then(async (res) => {
+              }),
+            }).then(async (res) => {
           const data = await res.json().catch(() => ({}));
           if (data?.session) {
             saveSessionLocal(data.session);
           }
-        }).catch(() => {})
+
+      if (data.potdResult && typeof window !== "undefined") {
+        if (typeof data.potdResult.newStreak === "number") {
+          window.dispatchEvent(
+            new CustomEvent("roundzero_potd_streak_updated", {
+              detail: { streak: data.potdResult.newStreak },
+                })
+          );
+            }
+        if (data.potdResult.creditAdded) {
+          window.dispatchEvent(new Event("roundzero_credits_updated"));
+            }
+              }
+            }).catch(() => {})
       );
 
       await Promise.allSettled(finishPromises);
@@ -350,27 +425,27 @@ export default function TakeOAPage({
             const k = localStorage.key(i);
             if (k && k.includes(session.id)) {
               localStorage.removeItem(k);
+                }
+              }
             }
-          }
-        }
-      } catch {}
+          } catch {}
 
       if (typeof document !== "undefined" && document.fullscreenElement) {
         try {
           await document.exitFullscreen();
-        } catch {}
-      }
+            } catch {}
+          }
 
       setTimeout(() => {
         router.push(`/oa/results/${session.id}`);
-      }, 350);
+          }, 350);
     } catch (error) {
       console.error("Error completing assessment", error);
       if (session?.id) {
         setTimeout(() => {
           router.push(`/oa/results/${session.id}`);
-        }, 350);
-      }
+            }, 350);
+          }
     }
   }, [router, session]);
 
@@ -381,15 +456,15 @@ export default function TakeOAPage({
         const res = await fetch(`/api/oa/${sessionId}`);
         if (res.ok) {
           sess = await res.json();
-        }
-      } catch (e) {
+            }
+          } catch (e) {
         console.error("Failed to fetch session from API", e);
-      }
+          }
 
       // Offline fallback only if network fails
       if (!sess) {
         sess = getSessionLocal(sessionId) || null;
-      }
+          }
 
       if (sess) {
         setSession(sess);
@@ -414,16 +489,16 @@ export default function TakeOAPage({
 
           if (savedCode !== null) {
             initialCode[q.id] = savedCode;
-          } else if (existing && existing.language === lang) {
+              } else if (existing && existing.language === lang) {
             initialCode[q.id] = existing.code;
-          } else {
+              } else {
             initialCode[q.id] = getStarterTemplate(q, lang);
-          }
-        });
+              }
+            });
 
         setCodeMap(initialCode);
         setLanguageMap(initialLang);
-      }
+          }
       setLoading(false);
     }
 
@@ -450,16 +525,32 @@ export default function TakeOAPage({
         hasEnteredFullscreenRef.current = true;
         setHasEnteredFullscreen(true);
       } else if (hasEnteredFullscreenRef.current && !isFinishedRef.current) {
-        console.warn("User exited fullscreen mode. Forfeiting duel / ending assessment.");
-        handleFinishAssessment(true);
+        if (session.roomId) {
+          console.warn("User exited fullscreen mode in duel arena. Forfeiting duel.");
+          handleFinishAssessment(true, "cheating");
+        } else {
+          proctorWarningsRef.current += 1;
+          setProctorWarnings(proctorWarningsRef.current);
+          if (proctorWarningsRef.current >= 3) {
+            handleFinishAssessment(true, "max_warnings");
+          }
+        }
       }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isFinishedRef.current) return;
       if (e.key === "Escape" && !isFinishedRef.current) {
-        console.warn("User pressed Escape. Forfeiting duel / ending assessment.");
-        handleFinishAssessment(true);
+        if (session.roomId) {
+          console.warn("User pressed Escape in duel arena. Forfeiting duel.");
+          handleFinishAssessment(true, "cheating");
+        } else {
+          proctorWarningsRef.current += 1;
+          setProctorWarnings(proctorWarningsRef.current);
+          if (proctorWarningsRef.current >= 3) {
+            handleFinishAssessment(true, "max_warnings");
+          }
+        }
       }
     };
 
@@ -471,8 +562,16 @@ export default function TakeOAPage({
         hasEnteredFullscreenRef.current &&
         !isFinishedRef.current
       ) {
-        console.warn("User switched tab / minimized window. Forfeiting duel / ending assessment.");
-        handleFinishAssessment(true);
+        if (session.roomId) {
+          console.warn("User switched tab / minimized window in duel arena. Forfeiting duel.");
+          handleFinishAssessment(true, "cheating");
+        } else {
+          proctorWarningsRef.current += 1;
+          setProctorWarnings(proctorWarningsRef.current);
+          if (proctorWarningsRef.current >= 3) {
+            handleFinishAssessment(true, "max_warnings");
+          }
+        }
       }
     };
 
@@ -486,13 +585,13 @@ export default function TakeOAPage({
                 JSON.stringify({
                   action: "forfeit_duel",
                   userEmail: myEmail,
-                }),
+                    }),
               ],
               { type: "application/json" }
             )
           );
-        } catch {}
-      }
+            } catch {}
+          }
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -580,7 +679,7 @@ export default function TakeOAPage({
           `oaforge_code_${sessionId}_${currentQuestion.id}_${currentLanguage}`,
           val,
         );
-      } catch {}
+          } catch {}
     }
   };
 
@@ -595,7 +694,7 @@ export default function TakeOAPage({
           `oaforge_lang_${sessionId}_${currentQuestion.id}`,
           newLang,
         );
-      } catch {}
+          } catch {}
     }
 
     let nextCode: string | null = null;
@@ -608,9 +707,9 @@ export default function TakeOAPage({
     if (nextCode === null) {
       if (currentSubmission && currentSubmission.language === newLang) {
         nextCode = currentSubmission.code;
-      } else {
+          } else {
         nextCode = getStarterTemplate(currentQuestion, newLang);
-      }
+          }
     }
 
     setLanguageMap((prev) => ({ ...prev, [currentQuestion.id]: newLang }));
@@ -626,7 +725,7 @@ export default function TakeOAPage({
           `oaforge_code_${sessionId}_${currentQuestion.id}_${currentLanguage}`,
           currentCode,
         );
-      } catch {}
+          } catch {}
     }
 
     const destQuestion = session?.questions[newIdx];
@@ -651,19 +750,19 @@ export default function TakeOAPage({
       let targetCode: string;
       if (savedCode !== null) {
         targetCode = savedCode;
-      } else if (
+          } else if (
         session?.submissions[destQuestion.id] &&
         session.submissions[destQuestion.id].language === targetLang
       ) {
         targetCode = session.submissions[destQuestion.id].code;
-      } else if (
+          } else if (
         codeMap[destQuestion.id] &&
         languageMap[destQuestion.id] === targetLang
       ) {
         targetCode = codeMap[destQuestion.id];
-      } else {
+          } else {
         targetCode = getStarterTemplate(destQuestion, targetLang);
-      }
+          }
 
       setLanguageMap((prev) => ({ ...prev, [destQuestion.id]: targetLang }));
       setCodeMap((prev) => ({ ...prev, [destQuestion.id]: targetCode }));
@@ -715,32 +814,32 @@ export default function TakeOAPage({
           code: currentCode,
           language: currentLanguage,
           customInput: isCustom && customVal?.trim() ? customVal.trim() : undefined,
-        }),
-      });
+            }),
+          });
 
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 429) {
         setRateLimitWarning(data.error || "You are submitting too frequently. Please wait a few seconds before trying again.");
         return;
-      }
+          }
 
       if (!res.ok) {
         setTestOutput({
           status: "ERROR",
           error: data.details || data.error || `Request failed (${res.status})`,
           results: [],
-        });
+            });
         return;
-      }
+          }
 
       setTestOutput(data);
       setSelectedCaseTab(0);
       if (getOutputState(data) === "passed") {
         playSound("success");
-      } else {
+          } else {
         playSound("error");
-      }
+          }
     } catch (e) {
       setTestOutput({
         status: "ERROR",
@@ -749,7 +848,7 @@ export default function TakeOAPage({
             ? e.message
             : "Network error: could not reach the code runner.",
         results: [],
-      });
+          });
       setSelectedCaseTab(0);
     } finally {
       setIsRunningTests(false);
@@ -768,37 +867,50 @@ export default function TakeOAPage({
         submission: {
           code: currentCode,
           language: currentLanguage,
-        },
+            },
         sessionData: session,
-      };
+          };
 
       const res = await fetch(`/api/oa/${session.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      });
+          });
 
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 429) {
         setRateLimitWarning(data.error || "You are submitting too frequently. Please wait a few seconds before trying again.");
         return;
-      }
+          }
 
       if (!res.ok) {
         setTestOutput({
           status: "ERROR",
           error: data.details || data.error || `Submit failed (${res.status})`,
           results: [],
-        });
+            });
         setSelectedCaseTab(0);
         return;
-      }
+          }
 
       if (data.session) {
         setSession(data.session);
         saveSessionLocal(data.session);
-      }
+          }
+
+      if (data.potdResult && typeof window !== "undefined") {
+        if (typeof data.potdResult.newStreak === "number") {
+          window.dispatchEvent(
+            new CustomEvent("roundzero_potd_streak_updated", {
+              detail: { streak: data.potdResult.newStreak },
+                })
+          );
+            }
+        if (data.potdResult.creditAdded) {
+          window.dispatchEvent(new Event("roundzero_credits_updated"));
+            }
+          }
 
       if (data.execution) {
         const exec: TestOutput = data.execution;
@@ -816,10 +928,10 @@ export default function TakeOAPage({
               language: currentLanguage,
               at: new Date().toISOString(),
               passed,
-            },
+                },
             ...(prev[qid] ?? []),
           ],
-        }));
+            }));
         setSelectedSubIdx(0);
 
         // All tests passed -> jump to the Submissions tab
@@ -834,7 +946,7 @@ export default function TakeOAPage({
             if (duelIntervalRef.current) {
               clearInterval(duelIntervalRef.current);
               duelIntervalRef.current = null;
-            }
+                }
 
             // Immediately display high-performance Victory overlay
             setMatchConcluding({
@@ -842,7 +954,7 @@ export default function TakeOAPage({
               title: "⚔️ VICTORY! Solution Accepted",
               message: "Congratulations! You submitted first. Saving your score and victory record...",
               isWinner: true,
-            });
+                });
 
             // The updated session returned by submit_question contains the newly submitted code and score
             const freshSession: OASession = data.session || {
@@ -850,9 +962,9 @@ export default function TakeOAPage({
               submissions: {
                 ...(session.submissions || {}),
                 [qid]: data.submission,
-              },
+                  },
               totalScore: (session.totalScore || 0) + (currentQuestion.points || 100),
-            };
+                };
 
             saveSessionLocal(freshSession);
 
@@ -867,8 +979,8 @@ export default function TakeOAPage({
                   isFinished: true,
                   problemsSolved: 1,
                   totalScore: freshSession.totalScore,
-                }),
-              }),
+                    }),
+                  }),
               fetch(`/api/oa/${session.id}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -877,28 +989,28 @@ export default function TakeOAPage({
                   sessionData: {
                     ...freshSession,
                     status: "completed",
-                  },
-                }),
-              }),
+                      },
+                    }),
+                  }),
             ]);
 
             // Exit fullscreen cleanly while overlay is displayed
             if (typeof document !== "undefined" && document.fullscreenElement) {
               try {
                 await document.exitFullscreen();
-              } catch {}
-            }
+                  } catch {}
+                }
 
             // Small delay to allow browser native fullscreen exit animation to settle before route unmount
             setTimeout(() => {
               router.push(`/oa/results/${session.id}`);
-            }, 350);
+                }, 350);
             return;
-          }
-        } else {
+              }
+            } else {
           playSound("error");
-        }
-      }
+            }
+          }
     } catch (e) {
       console.error("Error submitting code", e);
       setTestOutput({
@@ -906,7 +1018,7 @@ export default function TakeOAPage({
         error:
           e instanceof Error ? e.message : "Network error while submitting.",
         results: [],
-      });
+          });
     } finally {
       setIsSubmitting(false);
     }
@@ -1008,13 +1120,13 @@ export default function TakeOAPage({
                       : isSubmitted
                         ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                         : "bg-[#1e1e1e] text-zinc-400 hover:text-white border border-[#383838]"
-                  }`}
+                      }`}
                 >
                   <span>Q{idx + 1}</span>
                   {isSubmitted && <Check className="h-3 w-3" />}
                 </button>
               );
-            })}
+                })}
 
             <button
               type="button"
@@ -1082,7 +1194,7 @@ export default function TakeOAPage({
                       {opp ? `${opp.name?.split(' ')[0] || 'Opp'}: ${opp.problemsSolved || 0}/${session.questions.length}` : 'Waiting'}
                     </span>
                   );
-                })()}
+                    })()}
               </div>
               {duelRoom.winnerEmail && (
                 <span className="rounded bg-amber-500/20 text-amber-400 px-1.5 py-0.5 text-[10px] font-bold">
@@ -1135,6 +1247,22 @@ export default function TakeOAPage({
             </div>
           )}
 
+          {session.roomId && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Are you sure you want to forfeit this duel? Victory will be awarded to your opponent.")) {
+                  handleFinishAssessment(true, "user_quit");
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-md bg-rose-500/10 border border-rose-500/30 px-2.5 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition shadow-sm"
+              title="Forfeit and exit duel"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Forfeit</span>
+            </button>
+          )}
+
           <button
             onClick={() => setShowFinishModal(true)}
             className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 transition shadow-sm"
@@ -1155,7 +1283,7 @@ export default function TakeOAPage({
               mobileActiveView === "problem"
                 ? "bg-[#ffa116] text-[#141414] font-bold shadow"
                 : "text-zinc-400 hover:text-zinc-200"
-            }`}
+                }`}
           >
             <FileText className="h-3.5 w-3.5" />
             <span>Problem</span>
@@ -1167,7 +1295,7 @@ export default function TakeOAPage({
               mobileActiveView === "code"
                 ? "bg-[#ffa116] text-[#141414] font-bold shadow"
                 : "text-zinc-400 hover:text-zinc-200"
-            }`}
+                }`}
           >
             <Code2 className="h-3.5 w-3.5" />
             <span>Code</span>
@@ -1177,12 +1305,12 @@ export default function TakeOAPage({
             onClick={() => {
               setMobileActiveView("console");
               setConsoleOpen(true);
-            }}
+                }}
             className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition ${
               mobileActiveView === "console"
                 ? "bg-[#ffa116] text-[#141414] font-bold shadow"
                 : "text-zinc-400 hover:text-zinc-200"
-            }`}
+                }`}
           >
             <Terminal className="h-3.5 w-3.5" />
             <span>Console</span>
@@ -1194,7 +1322,7 @@ export default function TakeOAPage({
                     : outputState === "error"
                       ? "bg-amber-400"
                       : "bg-rose-400"
-                }`}
+                    }`}
               />
             )}
           </button>
@@ -1216,7 +1344,7 @@ export default function TakeOAPage({
             mobileActiveView === "problem"
               ? "flex flex-1 w-full"
               : "hidden lg:flex"
-          }`}
+              }`}
         >
           <div className={`${panelHeaderClass} gap-1`}>
             <button
@@ -1226,7 +1354,7 @@ export default function TakeOAPage({
                 leftTab === "description"
                   ? "bg-[#1e1e1e] text-white"
                   : "text-zinc-400 hover:text-zinc-200"
-              }`}
+                  }`}
             >
               <FileText className="h-3.5 w-3.5 text-[#ffa116]" />
               Description
@@ -1238,7 +1366,7 @@ export default function TakeOAPage({
                 leftTab === "submission"
                   ? "bg-[#1e1e1e] text-white"
                   : "text-zinc-400 hover:text-zinc-200"
-              }`}
+                  }`}
             >
               <Clock className="h-3.5 w-3.5 text-[#ffa116]" />
               Submissions
@@ -1388,7 +1516,7 @@ export default function TakeOAPage({
                           activeSub.output.hiddenStats.allPassed
                             ? "text-emerald-400"
                             : "text-rose-400"
-                        }`}
+                            }`}
                       >
                         {activeSub.output.hiddenStats.passed} /{" "}
                         {activeSub.output.hiddenStats.total} passed
@@ -1451,7 +1579,7 @@ export default function TakeOAPage({
                       type="button"
                       onClick={() =>
                         navigator.clipboard.writeText(activeSub.code)
-                      }
+                          }
                       className="flex items-center gap-1 rounded bg-[#383838] px-2 py-0.5 text-zinc-300 hover:bg-[#444] hover:text-white transition"
                     >
                       <Copy className="h-3 w-3" />
@@ -1494,7 +1622,7 @@ export default function TakeOAPage({
                               i === selectedSubIdx
                                 ? "bg-[#282828]"
                                 : "hover:bg-[#202020]"
-                            }`}
+                                }`}
                           >
                             <span className={`font-semibold ${m.color}`}>
                               {m.label}
@@ -1508,7 +1636,7 @@ export default function TakeOAPage({
                             </span>
                           </button>
                         );
-                      })}
+                          })}
                     </div>
                   </div>
                 )}
@@ -1524,13 +1652,13 @@ export default function TakeOAPage({
           onMouseDown={(e) => {
             e.preventDefault();
             setIsDragging(true);
-          }}
+              }}
           className="hidden lg:flex group w-2 shrink-0 cursor-col-resize items-center justify-center"
         >
           <div
             className={`h-10 w-0.5 rounded-full transition ${
               isDragging ? "bg-[#ffa116]" : "bg-[#383838] group-hover:bg-[#ffa116]"
-            }`}
+                }`}
           />
         </div>
 
@@ -1538,13 +1666,13 @@ export default function TakeOAPage({
         <div
           className={`flex flex-1 min-w-0 flex-col gap-2 ${isDragging ? "pointer-events-none" : ""} ${
             mobileActiveView === "problem" ? "hidden lg:flex" : "flex"
-          }`}
+              }`}
         >
           {/* Code editor card */}
           <section
             className={`${panelClass} flex-1 ${
               mobileActiveView === "console" ? "hidden lg:flex" : "flex"
-            }`}
+                }`}
           >
             <CodeEditor
               value={currentCode}
@@ -1560,9 +1688,9 @@ export default function TakeOAPage({
           <section
             className={`${panelClass} shrink-0 ${
               mobileActiveView === "code" ? "hidden lg:flex" : "flex"
-            } ${
+                } ${
               consoleOpen ? (isMobile ? "flex-1" : "h-[40%]") : "h-10"
-            }`}
+                }`}
           >
             <div className={`${panelHeaderClass} justify-between`}>
               <div className="flex items-center gap-1">
@@ -1571,12 +1699,12 @@ export default function TakeOAPage({
                   onClick={() => {
                     setBottomTab("testcase");
                     setConsoleOpen(true);
-                  }}
+                      }}
                   className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition ${
                     bottomTab === "testcase" && consoleOpen
                       ? "bg-[#1e1e1e] text-white"
                       : "text-zinc-400 hover:text-zinc-200"
-                  }`}
+                      }`}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                   Testcase
@@ -1588,7 +1716,7 @@ export default function TakeOAPage({
                     bottomTab === "result" && consoleOpen
                       ? "bg-[#1e1e1e] text-white"
                       : "text-zinc-400 hover:text-zinc-200"
-                  }`}
+                      }`}
                 >
                   <Terminal className="h-3.5 w-3.5 text-emerald-400" />
                   Test Result
@@ -1600,7 +1728,7 @@ export default function TakeOAPage({
                           : outputState === "error"
                             ? "bg-amber-400"
                             : "bg-rose-400"
-                      }`}
+                          }`}
                     />
                   )}
                 </button>
@@ -1638,12 +1766,12 @@ export default function TakeOAPage({
                             onClick={() => {
                               setSelectedSampleTab(idx);
                               setIsCustomTest((prev) => ({ ...prev, [currentQuestion.id]: false }));
-                            }}
+                                }}
                             className={`rounded-lg px-3 py-1 text-xs transition shrink-0 ${
                               !isCustomTest[currentQuestion.id] && selectedSampleTab === idx
                                 ? "bg-[#383838] text-white font-semibold"
                                 : "text-zinc-400 hover:bg-[#282828] hover:text-zinc-200"
-                            }`}
+                                }`}
                           >
                             Case {idx + 1}
                           </button>
@@ -1656,14 +1784,14 @@ export default function TakeOAPage({
                               setCustomTestInput((prev) => ({
                                 ...prev,
                                 [currentQuestion.id]: sampleExamples[0].input,
-                              }));
-                            }
-                          }}
+                                  }));
+                                }
+                              }}
                           className={`rounded-lg px-3 py-1 text-xs transition flex items-center gap-1 shrink-0 ${
                             isCustomTest[currentQuestion.id]
                               ? "bg-[#383838] text-[#ffa116] font-semibold border border-[#ffa116]/30"
                               : "text-zinc-400 hover:bg-[#282828] hover:text-zinc-200"
-                          }`}
+                              }`}
                         >
                           <span>+ Custom</span>
                         </button>
@@ -1685,8 +1813,8 @@ export default function TakeOAPage({
                               setCustomTestInput((prev) => ({
                                 ...prev,
                                 [currentQuestion.id]: e.target.value,
-                              }))
-                            }
+                                  }))
+                                }
                             rows={3}
                             placeholder="e.g. nums = [2, 7, 11, 15], target = 9"
                             className="w-full rounded-lg bg-[#282828] border border-[#383838] p-2.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-[#ffa116] select-text resize-y"
@@ -1774,8 +1902,8 @@ export default function TakeOAPage({
                                     navigator.clipboard.writeText(
                                       formatError(testOutput.error),
                                     );
-                                  }
-                                }}
+                                      }
+                                    }}
                                 className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-white px-2 py-0.5 rounded bg-[#282828] hover:bg-[#383838] transition"
                               >
                                 <Copy className="h-3 w-3" />
@@ -1843,19 +1971,19 @@ export default function TakeOAPage({
                                       isSelected
                                         ? "bg-[#383838] text-white font-semibold"
                                         : "text-zinc-400 hover:bg-[#282828] hover:text-zinc-200"
-                                    }`}
+                                        }`}
                                   >
                                     <span
                                       className={`h-1.5 w-1.5 rounded-full ${
                                         res.passed
                                           ? "bg-emerald-400"
                                           : "bg-rose-400"
-                                      }`}
+                                          }`}
                                     />
                                     Case {res.id ?? idx + 1}
                                   </button>
                                 );
-                              })}
+                                  })}
                             </div>
 
                             {(() => {
@@ -1884,7 +2012,7 @@ export default function TakeOAPage({
                                         currentRes.passed
                                           ? "text-emerald-400"
                                           : "text-rose-400"
-                                      }`}
+                                          }`}
                                     >
                                       {formatError(currentRes.actual)}
                                     </div>
@@ -1911,7 +2039,7 @@ export default function TakeOAPage({
                                   )}
                                 </div>
                               );
-                            })()}
+                                })()}
                           </div>
                         )}
 
@@ -1928,7 +2056,7 @@ export default function TakeOAPage({
                                   testOutput.hiddenStats.allPassed
                                     ? "text-emerald-400"
                                     : "text-rose-400"
-                                }`}
+                                    }`}
                               >
                                 {testOutput.hiddenStats.passed} /{" "}
                                 {testOutput.hiddenStats.total} passed
@@ -1981,13 +2109,20 @@ export default function TakeOAPage({
                   </span>
                 </div>
               </div>
-              {answeredCount < totalQuestions && (
+              {session.roomId && (answeredCount === 0 || (session.totalScore || 0) === 0) ? (
+                <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-2.5 text-xs text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-rose-400">Notice:</span> You have not solved the duel question. Concluding now will <strong>forfeit the duel</strong> and award victory to your opponent.
+                  </div>
+                </div>
+              ) : answeredCount < totalQuestions ? (
                 <p className="text-rose-400 text-xs flex items-center gap-1.5 font-semibold">
                   <AlertCircle className="h-4 w-4" />
                   Warning: You have {totalQuestions - answeredCount} unsubmitted
                   question(s).
                 </p>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -1998,13 +2133,26 @@ export default function TakeOAPage({
               >
                 Continue Writing
               </button>
-              <button
-                type="button"
-                onClick={() => handleFinishAssessment(false)}
-                className="px-5 py-2 rounded-lg bg-emerald-600 font-bold text-xs text-white shadow-md hover:bg-emerald-500"
-              >
-                {session?.roomId ? "Conclude Duel" : "Finalize & Submit"}
-              </button>
+              {session?.roomId && (answeredCount === 0 || (session.totalScore || 0) === 0) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFinishModal(false);
+                    handleFinishAssessment(true, "user_quit");
+                  }}
+                  className="px-5 py-2 rounded-lg bg-rose-600 font-bold text-xs text-white shadow-md hover:bg-rose-500 transition"
+                >
+                  Forfeit & Leave Duel
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleFinishAssessment(false)}
+                  className="px-5 py-2 rounded-lg bg-emerald-600 font-bold text-xs text-white shadow-md hover:bg-emerald-500 transition"
+                >
+                  {session?.roomId ? "Submit & Claim Victory" : "Finalize & Submit"}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2042,12 +2190,14 @@ export default function TakeOAPage({
                   </>
                 ) : (
                   <>
-                    This online assessment runs in mandatory Fullscreen Mode.
-                    Exiting fullscreen or pressing{" "}
-                    <kbd className="px-1.5 py-0.5 rounded bg-[#1e1e1e] border border-[#383838] text-[#ffa116] font-mono">
-                      ESC
-                    </kbd>{" "}
-                    will automatically finalize and submit your assessment.
+                    This assessment runs in Fullscreen Mode for an authentic testing experience.
+                    {proctorWarnings > 0 ? (
+                      <span className="block mt-2 font-semibold text-amber-400">
+                        ⚠️ Tab switch or window exit detected (Warning {proctorWarnings} of 3).
+                      </span>
+                    ) : (
+                      <span> Exiting fullscreen or switching windows 3 times will automatically finalize and submit your assessment.</span>
+                    )}
                   </>
                 )}
               </p>
@@ -2073,7 +2223,7 @@ export default function TakeOAPage({
                 ) : (
                   <>
                     <Maximize className="h-4 w-4" />
-                    Click to Enter Fullscreen Assessment
+                    {proctorWarnings > 0 ? "Return to Fullscreen Assessment" : "Click to Enter Fullscreen Assessment"}
                   </>
                 )}
               </button>
@@ -2092,7 +2242,7 @@ export default function TakeOAPage({
               matchConcluding.isWinner
                 ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
                 : "bg-amber-500/20 border-amber-500/50 text-amber-400"
-            }`}>
+                }`}>
               {matchConcluding.isWinner ? (
                 <Swords className="h-8 w-8 animate-pulse text-emerald-400" />
               ) : (
@@ -2103,7 +2253,7 @@ export default function TakeOAPage({
             <div className="space-y-2">
               <h2 className={`text-xl font-bold font-mono tracking-tight ${
                 matchConcluding.isWinner ? "text-emerald-400" : "text-white"
-              }`}>
+                  }`}>
                 {matchConcluding.title}
               </h2>
               <p className="text-xs text-zinc-400 leading-relaxed max-w-sm mx-auto">

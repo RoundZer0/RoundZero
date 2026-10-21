@@ -34,6 +34,7 @@ export default function Navbar() {
 
   const [credits, setCredits] = useState<number | null>(null);
   const [isUnlimited, setIsUnlimited] = useState(false);
+  const [potdStreak, setPotdStreak] = useState<number | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -121,6 +122,14 @@ export default function Navbar() {
       setIsUnlimited(
         !!(session.user as typeof session.user & { isUnlimited?: boolean }).isUnlimited
       );
+      fetch("/api/potd")
+        .then((r) => r.json())
+        .then((d) => {
+          if (typeof d?.userStatus?.streak === "number") {
+            setPotdStreak(d.userStatus.streak);
+          }
+        })
+        .catch(() => {});
       fetchUserCreditsFromDB(session.user.email).then((uState) => {
         setCredits(uState.credits);
         setIsUnlimited(uState.isUnlimited);
@@ -130,10 +139,18 @@ export default function Navbar() {
     }
 
     window.addEventListener("storage", update);
+    const onStreakUpdated = (e: any) => {
+      const s = e.detail?.streak ?? e.detail;
+      if (typeof s === "number") {
+        setPotdStreak(s);
+      }
+    };
     window.addEventListener("roundzero_credits_updated", update);
+    window.addEventListener("roundzero_potd_streak_updated" as any, onStreakUpdated);
     return () => {
       window.removeEventListener("storage", update);
       window.removeEventListener("roundzero_credits_updated", update);
+      window.removeEventListener("roundzero_potd_streak_updated" as any, onStreakUpdated);
     };
   }, [session?.user?.email, status]);
 
@@ -161,6 +178,10 @@ export default function Navbar() {
   if (isOAActive) {
     return null;
   }
+
+  const currentStreak = session?.user?.email
+    ? (potdStreak !== null ? potdStreak : (((session?.user as any)?.potdStreak as number) ?? 0))
+    : 0;
 
   const links = [
     { href: "/", label: "OA Builder", icon: Zap },
@@ -247,10 +268,10 @@ export default function Navbar() {
                 }`}
               >
                 <span>POTD</span>
-                {((session?.user as any)?.potdStreak ?? 0) > 0 && (
+                {currentStreak > 0 && (
                   <span className="flex items-center gap-0.5 rounded bg-amber-500/15 border border-amber-500/30 px-1 py-0.2 text-[9px] font-bold text-amber-400 font-mono">
                     <Flame className="h-2.5 w-2.5 fill-amber-400" />
-                    {(session?.user as any).potdStreak}
+                    {currentStreak}
                   </span>
                 )}
               </Link>
@@ -500,6 +521,12 @@ export default function Navbar() {
                   >
                     <Icon className="h-4 w-4 text-[#ffa116]" />
                     <span>{link.label}</span>
+                    {link.href === "/potd" && currentStreak > 0 && (
+                      <span className="flex items-center gap-0.5 rounded bg-amber-500/15 border border-amber-500/30 px-1 py-0.2 text-[9px] font-bold text-amber-400 font-mono ml-auto">
+                        <Flame className="h-2.5 w-2.5 fill-amber-400" />
+                        {currentStreak}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

@@ -122,6 +122,51 @@ export default function OAResultsPage({
   const isWinner = !!(room?.winnerEmail && myEmail && room.winnerEmail.toLowerCase() === myEmail);
   const isLoser = !!(room?.winnerEmail && myEmail && room.winnerEmail.toLowerCase() !== myEmail);
   const opponent = room?.members?.find((m: any) => m.email?.toLowerCase() !== myEmail);
+  const opponentName = opponent?.name || opponent?.email || 'your opponent';
+  const winReason = room?.winReason;
+  const isSelfForfeit = room?.forfeitedBy && room.forfeitedBy.toLowerCase() === myEmail;
+
+  // Check if current user actually submitted any accepted solution
+  const hasAcceptedSubmission = Object.values(session.submissions || {}).some(
+    (sub: any) =>
+      sub &&
+      sub.status === 'submitted' &&
+      Array.isArray(sub.testResults) &&
+      sub.testResults.length > 0 &&
+      sub.testResults.every((r: any) => r.passed)
+  );
+
+  const myMember = room?.members?.find((m: any) => m.email?.toLowerCase() === myEmail);
+  const oppMember = room?.members?.find((m: any) => m.email?.toLowerCase() !== myEmail);
+  const mySolved = Boolean((myMember?.problemsSolved && myMember.problemsSolved > 0) || hasAcceptedSubmission || (session.totalScore && session.totalScore > 0));
+  const oppSolved = Boolean((oppMember?.problemsSolved && oppMember.problemsSolved > 0) || (oppMember?.totalScore && oppMember.totalScore > 0));
+
+  let duelTitle = 'MATCH CONCLUDED';
+  let duelSubtitle = 'The 1v1 duel match has concluded.';
+
+  if (isWinner) {
+    if (winReason === 'opponent_cheated') {
+      duelTitle = '⚔️ VICTORY: OPPONENT DISQUALIFIED!';
+      duelSubtitle = `${opponentName} violated proctoring rules (switched tabs / exited fullscreen). You won the duel!`;
+    } else if (winReason === 'opponent_forfeit' || !mySolved) {
+      duelTitle = '⚔️ VICTORY: OPPONENT FORFEITED!';
+      duelSubtitle = `${opponentName} forfeited or left the match. You won the duel!`;
+    } else if (mySolved) {
+      duelTitle = '⚔️ VICTORY: YOU WON!';
+      duelSubtitle = `Outstanding! You submitted an accepted solution first and defeated ${opponentName}.`;
+    } else {
+      duelTitle = '⚔️ VICTORY: OPPONENT FORFEITED!';
+      duelSubtitle = `${opponentName} forfeited or left the match. You won the duel!`;
+    }
+  } else if (isLoser) {
+    if (isSelfForfeit || !oppSolved) {
+      duelTitle = '⚔️ DUEL FORFEITED';
+      duelSubtitle = `You forfeited or left the duel. Victory was awarded to ${opponentName}.`;
+    } else {
+      duelTitle = '⚔️ DEFEAT';
+      duelSubtitle = `Match ended in defeat. ${opponentName} submitted the accepted solution first.`;
+    }
+  }
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-10 space-y-8">
@@ -152,14 +197,10 @@ export default function OAResultsPage({
               <h1 className={`text-3xl sm:text-4xl font-extrabold tracking-tight font-mono ${
                 isWinner ? 'text-emerald-400' : isLoser ? 'text-rose-400' : 'text-white'
               }`}>
-                {isWinner ? '⚔️ VICTORY!' : isLoser ? '⚔️ DEFEAT' : 'MATCH CONCLUDED'}
+                {duelTitle}
               </h1>
               <p className="text-sm text-zinc-300 max-w-md mx-auto">
-                {isWinner
-                  ? `Outstanding! You submitted an accepted solution first and defeated ${opponent?.name || opponent?.email || 'your opponent'}.`
-                  : isLoser
-                  ? `Match ended in defeat. ${opponent?.name || opponent?.email || 'Your opponent'} secured the victory (or screen was exited / forfeited).`
-                  : 'The 1v1 duel match has concluded.'}
+                {duelSubtitle}
               </p>
             </div>
           </div>
@@ -175,7 +216,7 @@ export default function OAResultsPage({
               <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">You</div>
               <div className="font-bold text-sm text-white truncate">{session.userEmail || 'You'}</div>
               <div className={`text-xs font-mono font-bold ${isWinner ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                {isWinner ? '👑 Winner' : 'Defeated'}
+                {isWinner ? (mySolved ? '👑 Winner (Solved First)' : '👑 Winner (Opponent Forfeited)') : (isSelfForfeit ? 'Forfeited' : 'Defeated')}
               </div>
             </div>
 
@@ -190,7 +231,7 @@ export default function OAResultsPage({
               <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">Opponent</div>
               <div className="font-bold text-sm text-white truncate">{opponent?.name || opponent?.email || 'Opponent'}</div>
               <div className={`text-xs font-mono font-bold ${isLoser ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                {isLoser ? '👑 Winner' : 'Defeated'}
+                {isLoser ? (oppSolved ? '👑 Winner (Solved First)' : '👑 Winner (Opponent Forfeited)') : 'Defeated'}
               </div>
             </div>
           </div>

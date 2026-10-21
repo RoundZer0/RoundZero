@@ -191,6 +191,13 @@ export default function POTDPage() {
         setDateStr(data.dateStr);
         setCountdown(data.timeUntilReset);
         setUserStatus(data.userStatus);
+        if (typeof window !== 'undefined' && typeof data?.userStatus?.streak === 'number') {
+          window.dispatchEvent(
+            new CustomEvent('roundzero_potd_streak_updated', {
+              detail: { streak: data.userStatus.streak },
+            })
+          );
+        }
 
         // Submissions strictly from authenticated MongoDB query for THIS user
         const authenticSubs: SubmissionRecord[] = Array.isArray(data.submissions) ? data.submissions : [];
@@ -423,6 +430,18 @@ export default function POTDPage() {
             streak: data.newStreak,
             credits: data.credits,
           }));
+          if (typeof window !== 'undefined') {
+            if (typeof data.newStreak === 'number') {
+              window.dispatchEvent(
+                new CustomEvent('roundzero_potd_streak_updated', {
+                  detail: { streak: data.newStreak },
+                })
+              );
+            }
+            if (data.creditAdded) {
+              window.dispatchEvent(new Event('roundzero_credits_updated'));
+            }
+          }
           setCelebrationData({
             newStreak: data.newStreak,
             creditAdded: data.creditAdded,

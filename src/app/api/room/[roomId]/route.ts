@@ -32,6 +32,8 @@ export async function GET(
     members: room.members,
     status: room.status,
     winnerEmail: room.winnerEmail,
+    winReason: room.winReason,
+    forfeitedBy: room.forfeitedBy,
     oaConfig: room.oaConfig,
     startedAt: room.startedAt,
   });
@@ -44,18 +46,47 @@ export async function POST(
 ) {
   const { roomId } = await params;
   const session = await getServerSession(authOptions);
+  let body: any = {};
+  try {
+    body = await request.json();
+  } catch {}
+  const { action } = body;
+
+  // Handle beacon/unauthenticated forfeit if session was dropped during window unload
+  if (action === 'forfeit_duel' && !session?.user?.email && body?.userEmail) {
+    await connectToDatabase();
+    const room = await RoomModel.findOne({ roomId });
+    if (!room) return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+    const beaconEmail = String(body.userEmail).toLowerCase();
+    const opponent = room.members.find((m) => m.email.toLowerCase() !== beaconEmail);
+    if (!room.winnerEmail || !room.winReason) {
+      if (opponent) room.winnerEmail = opponent.email;
+      room.status = 'completed';
+      room.winReason = body.reason === 'cheating' ? 'opponent_cheated' : 'opponent_forfeit';
+      room.forfeitedBy = beaconEmail;
+      await room.save();
+    }
+    return NextResponse.json({
+      ok: true,
+      room,
+      winnerEmail: room.winnerEmail,
+      winReason: room.winReason,
+      forfeitedBy: room.forfeitedBy,
+      status: room.status,
+    });
+  }
+
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
+
+  const callerEmail = session.user.email.toLowerCase();
 
   await connectToDatabase();
   const room = await RoomModel.findOne({ roomId });
   if (!room) {
     return NextResponse.json({ error: 'Room not found' }, { status: 404 });
   }
-
-  const body = await request.json();
-  const { action } = body;
 
   // Toggle ready status for 1v1 duel
   if (action === 'toggle_ready') {
@@ -81,17 +112,19 @@ export async function POST(
 
   // Forfeit duel when screen/fullscreen is exited
   if (action === 'forfeit_duel') {
-    if (!room.winnerEmail) {
-      const opponent = room.members.find(
-        (m) => m.email.toLowerCase() !== session.user!.email!.toLowerCase()
-      );
+    const opponent = room.members.find(
+      (m) => m.email.toLowerCase() !== callerEmail
+    );
+    if (!room.winnerEmail || !room.winReason) {
       if (opponent) {
         room.winnerEmail = opponent.email;
       }
       room.status = 'completed';
+      room.winReason = body.reason === 'cheating' ? 'opponent_cheated' : 'opponent_forfeit';
+      room.forfeitedBy = callerEmail;
 
       try {
-        const loserUser = await UserModel.findOne({ email: session.user.email.toLowerCase() });
+        const loserUser = await UserModel.findOne({ email: callerEmail });
         if (loserUser) {
           loserUser.duelLosses = (loserUser.duelLosses || 0) + 1;
           await loserUser.save();
@@ -108,14 +141,14 @@ export async function POST(
       }
       await room.save();
     }
-    return NextResponse.json({ ok: true, room, winnerEmail: room.winnerEmail, status: room.status });
+    return NextResponse.json({ ok: true, room, winnerEmail: room.winnerEmail, winReason: room.winReason, forfeitedBy: room.forfeitedBy, status: room.status });
   }
 
   // Live progress telemetry or finish duel
   if (action === 'update_progress' || action === 'finish_duel') {
     const { problemsSolved, totalScore, currentQuestionIndex, isFinished, solutionAccepted } = body;
     const member = room.members.find(
-      (m) => m.email.toLowerCase() === session.user!.email!.toLowerCase()
+      (m) => m.email.toLowerCase() === callerEmail
     );
     if (member) {
       if (typeof problemsSolved === 'number') member.problemsSolved = problemsSolved;
@@ -123,24 +156,45 @@ export async function POST(
       if (typeof currentQuestionIndex === 'number') member.currentQuestionIndex = currentQuestionIndex;
       if (solutionAccepted) member.problemsSolved = Math.max(member.problemsSolved || 0, 1);
 
-      // In 1v1 duel, if solution is accepted or candidate finished, award victory if not already claimed
-      const shouldFinishDuel = (action === 'finish_duel' || isFinished || solutionAccepted);
-      if (shouldFinishDuel && !room.winnerEmail) {
-        room.winnerEmail = session.user.email;
-        room.status = 'completed';
+      // In 1v1 duel, award victory properly:
+      const hasSolvedProblem = Boolean(solutionAccepted || (member.problemsSolved && member.problemsSolved > 0) || (typeof totalScore === 'number' && totalScore > 0));
+      const shouldFinishDuel = Boolean(action === 'finish_duel' || isFinished || solutionAccepted);
+
+      if (shouldFinishDuel && (!room.winnerEmail || !room.winReason)) {
+        const opponent = room.members.find(
+          (m) => m.email.toLowerCase() !== callerEmail
+        );
+
+        if (hasSolvedProblem) {
+          // Candidate legitimately solved the problem!
+          room.winnerEmail = callerEmail;
+          room.status = 'completed';
+          room.winReason = 'solution_accepted';
+          room.forfeitedBy = undefined;
+        } else {
+          // Candidate finished/concluded WITHOUT solving the problem -> opponent wins by forfeit!
+          if (opponent) {
+            room.winnerEmail = opponent.email;
+          }
+          room.status = 'completed';
+          room.winReason = 'opponent_forfeit';
+          room.forfeitedBy = callerEmail;
+        }
 
         // Update winner and loser duel stats
         try {
-          const winnerUser = await UserModel.findOne({ email: session.user.email.toLowerCase() });
-          if (winnerUser) {
-            winnerUser.duelWins = (winnerUser.duelWins || 0) + 1;
-            await winnerUser.save();
+          const winnerEmail = room.winnerEmail;
+          const loserEmail = opponent && winnerEmail === opponent.email ? callerEmail : opponent?.email;
+
+          if (winnerEmail) {
+            const winnerUser = await UserModel.findOne({ email: winnerEmail.toLowerCase() });
+            if (winnerUser) {
+              winnerUser.duelWins = (winnerUser.duelWins || 0) + 1;
+              await winnerUser.save();
+            }
           }
-          const opponent = room.members.find(
-            (m) => m.email.toLowerCase() !== session.user!.email!.toLowerCase()
-          );
-          if (opponent) {
-            const loserUser = await UserModel.findOne({ email: opponent.email.toLowerCase() });
+          if (loserEmail) {
+            const loserUser = await UserModel.findOne({ email: loserEmail.toLowerCase() });
             if (loserUser) {
               loserUser.duelLosses = (loserUser.duelLosses || 0) + 1;
               await loserUser.save();
@@ -152,7 +206,7 @@ export async function POST(
       }
       await room.save();
     }
-    return NextResponse.json({ ok: true, room, winnerEmail: room.winnerEmail, status: room.status });
+    return NextResponse.json({ ok: true, room, winnerEmail: room.winnerEmail, winReason: room.winReason, forfeitedBy: room.forfeitedBy, status: room.status });
   }
 
   // Only creator can configure / start
@@ -338,6 +392,9 @@ export async function POST(
     room.status = 'active';
     room.startedAt = new Date();
     room.oaConfig = config;
+    room.winnerEmail = undefined;
+    room.winReason = undefined;
+    room.forfeitedBy = undefined;
     await room.save();
 
     // Deduct 1 credit from the creator's account for starting the OA (only if not unlimited)
@@ -353,6 +410,20 @@ export async function POST(
   }
 
   if (action === 'leave') {
+    if (room.status === 'active' && (room.roomType || '1v1_duel') === '1v1_duel') {
+      // Leaving an active 1v1 duel forfeits the match to the opponent!
+      const opponent = room.members.find(
+        (m) => m.email.toLowerCase() !== callerEmail
+      );
+      if (opponent) {
+        room.winnerEmail = opponent.email;
+      }
+      room.status = 'completed';
+      room.winReason = 'opponent_forfeit';
+      room.forfeitedBy = callerEmail;
+      await room.save();
+      return NextResponse.json({ ok: true, forfeited: true });
+    }
     if (room.status !== 'waiting') {
       return NextResponse.json({ error: 'Cannot leave a room after it has started.' }, { status: 400 });
     }

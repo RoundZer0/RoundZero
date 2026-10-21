@@ -152,15 +152,17 @@ export async function POST(
 
     const authSession = await getServerSession(authOptions);
     const userEmail = normalizeEmail(authSession?.user?.email || session.userEmail);
+    let potdResult: any = null;
     if (userEmail) {
       session.userEmail = userEmail;
       await saveOASessionToDB(session, userEmail);
 
       // If this OA session is a POTD and all test cases passed, record POTD solve and reward
+
       if (session.config?.isPOTD && passedCount === totalTests) {
         try {
           const { recordPOTDSolve, getTodayDateStr } = await import('@/lib/potd');
-          await recordPOTDSolve(
+          potdResult = await recordPOTDSolve(
             userEmail,
             questionId,
             code,
@@ -215,6 +217,7 @@ export async function POST(
       message: 'Question submitted successfully',
       submission: fullSubmission,
       execution: clientExecution,
+      potdResult,
       session: {
         ...session,
         questions: clientSafeQuestions,

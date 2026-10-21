@@ -22,6 +22,8 @@ export interface IRoom extends Document {
   oaConfig?: any; // OAFilterConfig, set once creator locks in settings
   status: 'waiting' | 'active' | 'completed';
   winnerEmail?: string;
+  winReason?: 'solution_accepted' | 'opponent_forfeit' | 'opponent_cheated';
+  forfeitedBy?: string;
   createdAt: Date;
   startedAt?: Date;
 }
@@ -56,10 +58,16 @@ const RoomSchema: Schema<IRoom> = new Schema(
       default: 'waiting',
     },
     winnerEmail: { type: String },
+    winReason: { type: String, enum: ['solution_accepted', 'opponent_forfeit', 'opponent_cheated'] },
+    forfeitedBy: { type: String },
     startedAt: { type: Date },
   },
-  { timestamps: true }
+  { timestamps: true, strict: false }
 );
+
+if (mongoose.models && (mongoose.models as any).Room) {
+  delete (mongoose.models as any).Room;
+}
 
 const RoomModel: Model<IRoom> =
   mongoose.models.Room || mongoose.model<IRoom>('Room', RoomSchema);
