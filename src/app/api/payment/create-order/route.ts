@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     });
 
     const order = await instance.orders.create({
-      amount: Math.round(amount * 100), // Amount in paise
+      amount: Math.round(amount * 100), 
       currency,
       receipt: `receipt_${Date.now()}`,
       notes: {

@@ -78,7 +78,7 @@ export default function RazorpayPayButton({
           image: 'https://cdn-icons-png.flaticon.com/512/9322/9322127.png',
           order_id: orderData.id,
           handler: async function (response: any) {
-            // Step 3: Verify Payment Signature via Backend API
+            
             const verifyRes = await fetch('/api/payment/verify', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
